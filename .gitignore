@@ -4,3 +4,7 @@ __pycache__/
 
 # Virtual environment
 venv/
+
+# personal info
+attendance_sheets/
+
