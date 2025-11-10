@@ -53,73 +53,109 @@
         font-weight: 600;
       }
 
-      td:last-child {
-        text-align: center;
-        width: 10%;
-        font-size: 1.3rem;
+      td input {
+        width: 100%;
+        border: none;
+        background: transparent;
+        font-size: 1rem;
       }
 
-      /* Make text larger and more readable on small screens */
+      td button.delete-row {
+        font-size: 1rem;
+        padding: 0.25rem 0.5rem;
+        cursor: pointer;
+        background-color: #e74c3c;
+        color: white;
+        border: none;
+        border-radius: 4px;
+      }
+
+      .add-row-btn {
+        margin-top: 0.5rem;
+        padding: 0.5rem 1rem;
+        font-size: 1rem;
+        background-color: #27ae60;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+
+      /* Mobile adjustments */
       @media (max-width: 600px) {
-        body {
-          padding: 1rem;
-          font-size: 1.1rem;
-        }
-
-        h1 {
-          font-size: 1.8rem;
-        }
-
-        h2 {
-          font-size: 1.3rem;
-        }
-
-        table {
-          font-size: 1rem;
-        }
-
-        th, td {
-          padding: 0.6rem;
-        }
-
-        td:last-child {
-          font-size: 1.5rem;
-        }
+        body { font-size: 1.1rem; padding: 1rem; }
+        h1 { font-size: 1.8rem; }
+        h2 { font-size: 1.3rem; }
+        table { font-size: 1rem; }
+        th, td { padding: 0.6rem; }
       }
     </style>
   </head>
   <body>
     <h1>Attendance Sheets</h1>
-    {% for label, rows in data.items() %}
-      <h2>{{ label }}</h2>
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>Player Name</th>
-              <th>Age</th>
-              <th>Parent</th>
-              <th>Email</th>
-              <th>Phone</th>
-              <th>Time</th>
-              <th>Present</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in rows %}
+    <form method="post" action="{{ url_for('save_attendance') }}">
+      {% for label, rows in data.items() %}
+        <h2>{{ label }}</h2>
+        <div class="table-container">
+          <table>
+            <thead>
               <tr>
-                <td>{{ row["Player Name"] }}</td>
-                <td>{{ row["Player Age"] }}</td>
-                <td>{{ row["Parent/Guardian Name"] }}</td>
-                <td>{{ row["Parent/Guardian Email"] }}</td>
-                <td>{{ row["Parent/Guardian Phone"] }}</td>
-                <td>{{ row["Time"] }}</td>
-                <td>☐</td>
+                <th>Player Name</th>
+                <th>Age</th>
+                <th>Parent</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Time</th>
+                <th>Delete</th>
               </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {% for row in rows %}
+              <tr>
+                <td><input type="text" name="player_name" value="{{ row['Player Name'] }}"></td>
+                <td><input type="text" name="player_age" value="{{ row['Player Age'] }}"></td>
+                <td><input type="text" name="parent_name" value="{{ row['Parent/Guardian Name'] }}"></td>
+                <td><input type="text" name="parent_email" value="{{ row['Parent/Guardian Email'] }}"></td>
+                <td><input type="text" name="parent_phone" value="{{ row['Parent/Guardian Phone'] }}"></td>
+                <td><input type="text" name="time" value="{{ row['Time'] }}"></td>
+                <td><button type="button" class="delete-row">🗑️</button></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <button type="button" class="add-row-btn">+ Add Row</button>
+      {% endfor %}
+      <div style="text-align:center; margin-top: 2rem;">
+        <button type="submit" style="font-size:1.2rem; padding:0.75rem 1.5rem;">Save Attendance</button>
       </div>
-    {% endfor %}
+      <input type="hidden" name="sheet_url" value="{{ sheet_url }}">
+    </form>
+
+    <script>
+      // Delete row button
+      document.querySelectorAll('.delete-row').forEach(btn => {
+        btn.addEventListener('click', e => e.target.closest('tr').remove());
+      });
+
+      // Add row button
+      document.querySelectorAll('.add-row-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+          const tbody = e.target.previousElementSibling.querySelector('tbody');
+          const newRow = document.createElement('tr');
+          newRow.innerHTML = `
+            <td><input type="text" name="player_name" value=""></td>
+            <td><input type="text" name="player_age" value=""></td>
+            <td><input type="text" name="parent_name" value=""></td>
+            <td><input type="text" name="parent_email" value=""></td>
+            <td><input type="text" name="parent_phone" value=""></td>
+            <td><input type="text" name="time" value=""></td>
+            <td><button type="button" class="delete-row">🗑️</button></td>
+          `;
+          tbody.appendChild(newRow);
+          newRow.querySelector('.delete-row').addEventListener('click', ev => ev.target.closest('tr').remove());
+        });
+      });
+    </script>
   </body>
 </html>
