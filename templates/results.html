@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Attendance Sheets</title>
+    <style>
+      body { font-family: sans-serif; padding: 2rem; }
+      h2 { margin-top: 2rem; font-size: 1.8rem; }
+      table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
+      th, td { border: 1px solid #ccc; padding: .5rem; font-size: 1.2rem; }
+      th { background: #f3f3f3; }
+      td:last-child { text-align: center; width: 10%; }
+    </style>
+  </head>
+  <body>
+    <h1>Attendance Sheets</h1>
+    {% for label, rows in data.items() %}
+      <h2>{{ label }}</h2>
+      <table>
+        <tr>
+          <th>Player Name</th><th>Age</th><th>Parent</th><th>Email</th>
+          <th>Phone</th><th>Time</th><th>Present</th>
+        </tr>
+        {% for row in rows %}
+        <tr>
+          <td>{{ row["Player Name"] }}</td>
+          <td>{{ row["Player Age"] }}</td>
+          <td>{{ row["Parent/Guardian Name"] }}</td>
+          <td>{{ row["Parent/Guardian Email"] }}</td>
+          <td>{{ row["Parent/Guardian Phone"] }}</td>
+          <td>{{ row["Time"] }}</td>
+          <td>☐</td>
+        </tr>
+        {% endfor %}
+      </table>
+    {% endfor %}
+  </body>
+</html>
