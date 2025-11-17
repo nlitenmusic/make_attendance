@@ -1,161 +1,95 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Attendance Sheets</title>
-    <style>
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        margin: 0;
-        padding: 1rem;
-        background-color: #fafafa;
-        color: #222;
-      }
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Attendance - {{ filename }}</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding:20px; background:#fafafa; color:#222; }
+table { width:100%; border-collapse:collapse; background:white; }
+th, td { border:1px solid #ddd; padding:.5rem; text-align:left; }
+th { background:#f5f5f5; }
+input[type="text"] { width:100%; border:none; padding:.25rem; box-sizing:border-box; }
+.btn { padding:.5rem .75rem; border-radius:6px; border:none; cursor:pointer; }
+.add { background:#2ecc71; color:white; }
+.save { background:#007bff; color:white; }
+.del { background:#ff4b4b; color:white; }
+.row-actions { display:flex; gap:.5rem; }
+</style>
+</head>
+<body>
+<a href="{{ url_for('index') }}"><button class="btn">⬅ Back</button></a>
+<h1>{{ filename.replace('.csv','') }}</h1>
 
-      h1 {
-        text-align: center;
-        font-size: 2rem;
-        margin-bottom: 1.5rem;
-      }
+<form method="post" action="{{ url_for('save_attendance') }}">
+  <input type="hidden" name="filename" value="{{ filename }}">
 
-      h2 {
-        margin-top: 2rem;
-        margin-bottom: 0.5rem;
-        font-size: 1.5rem;
-        text-align: left;
-      }
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Age</th>
+        <th>Member Name</th>
 
-      .table-container {
-        overflow-x: auto;
-        background: white;
-        border-radius: 0.5rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
-        margin-bottom: 1.5rem;
-      }
+        {% for col in dynamic_dates %}
+          <th>{{ col }}</th>
+        {% endfor %}
 
-      table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 1rem;
-        min-width: 700px;
-      }
+        <th>Comments</th>
+        <th>Fee</th>
+        <th>Delete</th>
+      </tr>
+    </thead>
 
-      th, td {
-        border: 1px solid #ddd;
-        padding: 0.75rem;
-        text-align: left;
-        white-space: nowrap;
-      }
+    <tbody id="rows">
+      {% for row in data %}
+      <tr>
+        <td><input type="text" name="player_name" value="{{ row['Name'] }}"></td>
+        <td><input type="text" name="age" value="{{ row['Age'] }}"></td>
+        <td><input type="text" name="parent" value="{{ row['MemberName'] }}"></td>
 
-      th {
-        background-color: #f5f5f5;
-        font-weight: 600;
-      }
+        {% for col in dynamic_dates %}
+          <td><input type="text" name="date__{{ col }}" value="{{ row[col] }}"></td>
+        {% endfor %}
 
-      td input {
-        width: 100%;
-        border: none;
-        background: transparent;
-        font-size: 1rem;
-      }
+        <td><input type="text" name="comments" value="{{ row['Comments'] }}"></td>
+        <td><input type="text" name="fee" value="{{ row['Fee'] }}"></td>
 
-      td button.delete-row {
-        font-size: 1rem;
-        padding: 0.25rem 0.5rem;
-        cursor: pointer;
-        background-color: #e74c3c;
-        color: white;
-        border: none;
-        border-radius: 4px;
-      }
-
-      .add-row-btn {
-        margin-top: 0.5rem;
-        padding: 0.5rem 1rem;
-        font-size: 1rem;
-        background-color: #27ae60;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-      }
-
-      /* Mobile adjustments */
-      @media (max-width: 600px) {
-        body { font-size: 1.1rem; padding: 1rem; }
-        h1 { font-size: 1.8rem; }
-        h2 { font-size: 1.3rem; }
-        table { font-size: 1rem; }
-        th, td { padding: 0.6rem; }
-      }
-    </style>
-  </head>
-  <body>
-    <h1>Attendance Sheets</h1>
-    <form method="post" action="{{ url_for('save_attendance') }}">
-      {% for label, rows in data.items() %}
-        <h2>{{ label }}</h2>
-        <div class="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>Player Name</th>
-                <th>Age</th>
-                <th>Parent</th>
-                <th>Email</th>
-                <th>Phone</th>
-                <th>Time</th>
-                <th>Delete</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in rows %}
-              <tr>
-                <td><input type="text" name="player_name" value="{{ row['Player Name'] }}"></td>
-                <td><input type="text" name="player_age" value="{{ row['Player Age'] }}"></td>
-                <td><input type="text" name="parent_name" value="{{ row['Parent/Guardian Name'] }}"></td>
-                <td><input type="text" name="parent_email" value="{{ row['Parent/Guardian Email'] }}"></td>
-                <td><input type="text" name="parent_phone" value="{{ row['Parent/Guardian Phone'] }}"></td>
-                <td><input type="text" name="time" value="{{ row['Time'] }}"></td>
-                <td><button type="button" class="delete-row">🗑️</button></td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-        <button type="button" class="add-row-btn">+ Add Row</button>
+        <td>
+          <input type="hidden" name="row_id" value="{{ row['row_id'] }}">
+          <input type="hidden" name="delete_flag" value="">
+          <button type="button" class="del" onclick="markDelete(this)">🗑️</button>
+        </td>
+      </tr>
       {% endfor %}
-      <div style="text-align:center; margin-top: 2rem;">
-        <button type="submit" style="font-size:1.2rem; padding:0.75rem 1.5rem;">Save Attendance</button>
-      </div>
-      <input type="hidden" name="sheet_url" value="{{ sheet_url }}">
-    </form>
+    </tbody>
+  </table>
 
-    <script>
-      // Delete row button
-      document.querySelectorAll('.delete-row').forEach(btn => {
-        btn.addEventListener('click', e => e.target.closest('tr').remove());
-      });
+<div style="margin-top:1rem;">
+  <form method="post" action="{{ url_for('add_row') }}" style="display:inline;">
+    <input type="hidden" name="filename" value="{{ filename }}">
+    <button class="add btn">+ Add Row</button>
+  </form>  
 
-      // Add row button
-      document.querySelectorAll('.add-row-btn').forEach(btn => {
-        btn.addEventListener('click', e => {
-          const tbody = e.target.previousElementSibling.querySelector('tbody');
-          const newRow = document.createElement('tr');
-          newRow.innerHTML = `
-            <td><input type="text" name="player_name" value=""></td>
-            <td><input type="text" name="player_age" value=""></td>
-            <td><input type="text" name="parent_name" value=""></td>
-            <td><input type="text" name="parent_email" value=""></td>
-            <td><input type="text" name="parent_phone" value=""></td>
-            <td><input type="text" name="time" value=""></td>
-            <td><button type="button" class="delete-row">🗑️</button></td>
-          `;
-          tbody.appendChild(newRow);
-          newRow.querySelector('.delete-row').addEventListener('click', ev => ev.target.closest('tr').remove());
-        });
-      });
-    </script>
-  </body>
+  <div style="margin-top:1rem;">
+    <button type="submit" class="save btn">Save Attendance</button>
+  </div>
+</form>
+
+  <form method="post" action="{{ url_for('add_date_column') }}" style="display:inline; margin-left:1rem;">
+    <input type="hidden" name="filename" value="{{ filename }}">
+    <input type="text" name="new_date" placeholder="New date header (e.g. 1/10)" required>
+    <button class="add btn">+ Add Date Column</button>
+  </form>
+</div>
+
+<script>
+function markDelete(btn){
+  const delHidden = btn.parentElement.querySelector('input[name="delete_flag"]');
+  delHidden.value = "1";
+  btn.closest('tr').style.opacity = 0.5;
+}
+</script>
+
+</body>
 </html>

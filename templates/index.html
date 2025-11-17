@@ -1,79 +1,107 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.2">
-    <title>Clinic Attendance Generator</title>
-    <style>
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        padding: 2rem;
-        margin: 0;
-        background-color: #f7f9fb;
-        color: #222;
-        text-align: center;
-      }
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Attendance Sheets</title>
 
-      h1 {
-        font-size: 2rem;
-        margin-bottom: 1.5rem;
-      }
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding:2rem;
+    background:#fafafa;
+    color:#222;
+  }
 
-      form {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 1rem;
-        max-width: 500px;
-        margin: 0 auto;
-      }
+  h1 {
+    text-align:center;
+    font-size:2rem;
+    margin-bottom:1.5rem;
+  }
 
-      label {
-        font-size: 1.3rem;
-      }
+  form {
+    display:flex;
+    flex-direction:column;
+    max-width:400px;
+    margin:0 auto;
+    gap:1rem;
+  }
 
-      input[type=text] {
-        width: 100%;
-        font-size: 1.3rem;
-        padding: 0.75rem;
-        border-radius: 8px;
-        border: 1px solid #ccc;
-      }
+  input[type=text] {
+    padding:.5rem;
+    font-size:1rem;
+    border-radius:5px;
+    border:1px solid #ccc;
+  }
 
-      button {
-        font-size: 1.4rem;
-        padding: 0.75rem 1.5rem;
-        border: none;
-        border-radius: 8px;
-        background-color: #0066cc;
-        color: white;
-        cursor: pointer;
-      }
+  button {
+    padding:.5rem 1rem;
+    font-size:1rem;
+    border:none;
+    border-radius:5px;
+    background:#0066cc;
+    color:white;
+    cursor:pointer;
+  }
 
-      button:hover {
-        background-color: #0052a3;
-      }
+  button:hover {
+    background:#0052a3;
+  }
 
-      @media (max-width: 600px) {
-        body {
-          padding: 1rem;
-        }
+  .saved-sheet {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:.5rem;
+    background:white;
+    padding:.5rem;
+    border-radius:5px;
+    box-shadow:0 1px 4px rgba(0,0,0,.1);
+  }
 
-        h1 {
-          font-size: 1.8rem;
-        }
+  .saved-sheet form {
+    margin:0;
+  }
 
-        input[type=text], button {
-          font-size: 1.2rem;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <h1>Generate Attendance Sheets</h1>
-    <form method="post">
-      <label for="sheet_url">Paste Google Sheet URL:</label>
-      <input type="text" id="sheet_url" name="sheet_url" required>
-      <button type="submit">Create Sheets</button>
-    </form>
-  </body>
+  .filename {
+    flex-grow:1;
+    margin:0 1rem;
+  }
+</style>
+</head>
+
+<body>
+
+<h1>Generate Attendance Sheets</h1>
+
+<form method="post">
+  <input type="text" name="sheet_url" placeholder="Google Sheet URL" required>
+  <button type="submit">Create Sheets</button>
+</form>
+
+<h2 style="text-align:center; margin-top:2rem;">Saved Sheets</h2>
+
+{% if saved_sheets %}
+  {% for sheet in saved_sheets %}
+    <div class="saved-sheet">
+
+      <form method="get" action="{{ url_for('results') }}">
+        <input type="hidden" name="filename" value="{{ sheet }}">
+        <button type="submit" style="background:#2ecc71;">Open</button>
+      </form>
+
+      <span class="filename">{{ sheet }}</span>
+
+      <form method="post" action="{{ url_for('delete_sheet') }}">
+        <input type="hidden" name="filename" value="{{ sheet }}">
+        <button type="submit" style="background:#e74c3c;">Delete</button>
+      </form>
+
+    </div>
+  {% endfor %}
+{% else %}
+  <p style="text-align:center; opacity:.6;">No saved sheets yet.</p>
+{% endif %}
+
+</body>
 </html>
