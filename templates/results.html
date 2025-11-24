@@ -29,37 +29,25 @@ input[type="text"] { width:100%; border:none; padding:.25rem; box-sizing:border-
         <th>Name</th>
         <th>Age</th>
         <th>Member Name</th>
-
+        <th>Comments</th>
+        <th>Fee</th>
         {% for col in dynamic_dates %}
           <th>{{ col }}</th>
         {% endfor %}
-
-        <th>Comments</th>
-        <th>Fee</th>
-        <th>Delete</th>
       </tr>
     </thead>
-
-    <tbody id="rows">
+    <tbody>
       {% for row in data %}
-      <tr>
-        <td><input type="text" name="player_name" value="{{ row['Name'] }}"></td>
-        <td><input type="text" name="age" value="{{ row['Age'] }}"></td>
-        <td><input type="text" name="parent" value="{{ row['MemberName'] }}"></td>
-
-        {% for col in dynamic_dates %}
-          <td><input type="text" name="date__{{ col }}" value="{{ row[col] }}"></td>
-        {% endfor %}
-
-        <td><input type="text" name="comments" value="{{ row['Comments'] }}"></td>
-        <td><input type="text" name="fee" value="{{ row['Fee'] }}"></td>
-
-        <td>
-          <input type="hidden" name="row_id" value="{{ row['row_id'] }}">
-          <input type="hidden" name="delete_flag" value="">
-          <button type="button" class="del" onclick="markDelete(this)">🗑️</button>
-        </td>
-      </tr>
+        <tr>
+          <td>{{ row['Name'] }}</td>
+          <td>{{ row['Age'] }}</td>
+          <td>{{ row['MemberName'] }}</td>
+          <td>{{ row['Comments'] }}</td>
+          <td>{{ row['Fee'] }}</td>
+          {% for col in dynamic_dates %}
+            <td>{{ row[col] }}</td>
+          {% endfor %}
+        </tr>
       {% endfor %}
     </tbody>
   </table>
