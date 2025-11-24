@@ -90,7 +90,7 @@
         <button type="submit" style="background:#2ecc71;">Open</button>
       </form>
 
-      <span class="filename">{{ sheet }}</span>
+      <span class="filename">{{ pretty_filename(sheet) }}</span>
 
       <form method="post" action="{{ url_for('delete_sheet') }}">
         <input type="hidden" name="filename" value="{{ sheet }}">

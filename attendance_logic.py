@@ -161,7 +161,9 @@ def export_attendance_sheets(attendance_df: pd.DataFrame, output_dir: str | Path
         if pd.isna(day):
             continue
 
-        clean_filename = f"{day}_{clinic.replace(' ', '')}.csv"
+        pretty_clinic = clinic  # already something like "Orange Ball Clinic"
+        clean_filename = f"{day} {pretty_clinic}.csv"
+
         filepath = out / clean_filename
 
         binder_df = group[["row_id", "Name", "Age", "MemberName", "Comments", "Fee"]].copy()

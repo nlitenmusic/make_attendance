@@ -1,4 +1,5 @@
 # app.py
+import os
 import io
 import re
 import uuid
@@ -16,6 +17,20 @@ app.secret_key = "supersecretkey"
 ATTENDANCE_DIR = Path("attendance_sheets")
 ATTENDANCE_DIR.mkdir(exist_ok=True)
 
+def pretty_filename(filename: str) -> str:
+    base = filename.replace(".csv", "")
+    if "_" not in base:
+        return base
+
+    day, clinic = base.split("_", 1)
+
+    # Insert spaces before capital letters: "GreenBallClinic" → "Green Ball Clinic"
+    clinic_readable = re.sub(r"(?<!^)([A-Z])", r" \1", clinic)
+
+    return f"{day} {clinic_readable}"
+
+app.jinja_env.globals.update(pretty_filename=pretty_filename)
+
 # Helper: extract sheet id and optional gid from provided URL
 def extract_ids(sheet_url: str):
     sheet_match = re.search(r"/d/([a-zA-Z0-9_-]+)", sheet_url)
@@ -23,6 +38,7 @@ def extract_ids(sheet_url: str):
     sheet_id = sheet_match.group(1) if sheet_match else None
     gid = gid_match.group(1) if gid_match else "0"
     return sheet_id, gid
+
 
 def fetch_csv_from_google(sheet_url: str) -> pd.DataFrame:
     sheet_id, gid = extract_ids(sheet_url)
@@ -42,13 +58,24 @@ CLINIC_TOKENS = ["RedBallClinic", "OrangeBallClinic", "GreenBallClinic", "Yellow
 
 def sort_key(filename: str):
     base = filename.replace(".csv", "")
-    parts = base.split("_", 1)
+    parts = base.split(" ", 1)
+
     if len(parts) != 2:
         return (999, 999, filename)
+
     day, clinic = parts
+
+    # Day index
     day_idx = DAY_ORDER.index(day) if day in DAY_ORDER else 999
-    clinic_idx = next((i for i, t in enumerate(CLINIC_TOKENS) if t in clinic), 999)
+
+    # Clinic index — match the exact clinic name
+    clinic_idx = next(
+        (i for i, c in enumerate(CLINIC_TOKENS) if c == clinic),
+        999
+    )
+
     return (day_idx, clinic_idx, filename)
+
 
 def list_saved_sheets_sorted():
     files = [f.name for f in ATTENDANCE_DIR.glob("*.csv")]
@@ -74,7 +101,7 @@ def index():
         return redirect(url_for("index"))
 
     saved_sheets = list_saved_sheets_sorted()
-    return render_template("index.html", saved_sheets=saved_sheets)
+    return render_template("index.html", saved_sheets=saved_sheets, pretty_filename=pretty_filename)
 
 
 @app.route("/results", methods=["GET"])
@@ -99,7 +126,7 @@ def results():
 
     # convert rows to list of dicts for template
     data = df.to_dict("records")
-    return render_template("results.html", data=data, filename=filename, dynamic_dates=dynamic_dates)
+    return render_template("results.html", data=data, filename=filename, dynamic_dates=dynamic_dates, pretty_filename=pretty_filename)
 
 
 @app.route("/save_attendance", methods=["POST"])
@@ -216,4 +243,5 @@ def delete_sheet():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
