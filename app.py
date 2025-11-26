@@ -13,7 +13,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash, sen
 
 from attendance_logic import convert_import_to_internal_schema, build_attendance, export_attendance_sheets
 
-mongo_uri = os.getenv("MONGODB_URL")
+mongo_uri = os.getenv("MONGO_URL")
 client = MongoClient(mongo_uri)
 db = client["attendance_db"]
 
