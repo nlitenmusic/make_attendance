@@ -22,7 +22,12 @@ def get_db():
         mongo_uri = os.getenv("MONGO_URL")
         if not mongo_uri:
             raise RuntimeError("MONGO_URL environment variable is not set")
-        client = MongoClient(mongo_uri)
+        client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+        try:
+            client.admin.command("ping")
+            print("MongoDB CONNECTED")
+        except Exception as e:
+            print("MongoDB ERROR:", e)
         db = client["attendance_db"]
     return db
 
