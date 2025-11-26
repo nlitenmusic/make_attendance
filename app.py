@@ -13,12 +13,21 @@ from flask import Flask, render_template, request, redirect, url_for, flash, sen
 
 from attendance_logic import convert_import_to_internal_schema, build_attendance, export_attendance_sheets
 
-mongo_uri = os.getenv("MONGO_URL")
-client = MongoClient(mongo_uri)
-db = client["attendance_db"]
+client = None
+db = None
+
+def get_db():
+    global client, db
+    if client is None:
+        mongo_uri = os.getenv("MONGO_URL")
+        if not mongo_uri:
+            raise RuntimeError("MONGO_URL environment variable is not set")
+        client = MongoClient(mongo_uri)
+        db = client["attendance_db"]
+    return db
 
 app = Flask(__name__)
-app.secret_key = "supersecretkey"
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "supersecretkey")
 
 ATTENDANCE_DIR = Path("attendance_sheets")
 ATTENDANCE_DIR.mkdir(exist_ok=True)
@@ -93,21 +102,21 @@ def save_sheet_to_db(filename, attendance):
     doc = {
         "filename": filename,
         "uploaded_at": datetime.utcnow(),
-        "attendance": attendance  # list of dicts
+        "attendance": attendance
     }
-    db.sheets.replace_one({"filename": filename}, doc, upsert=True)
+    get_db().sheets.replace_one({"filename": filename}, doc, upsert=True)
 
 def get_all_sheets():
-    return list(db.sheets.find().sort("uploaded_at", -1))
+    return list(get_db().sheets.find().sort("uploaded_at", -1))
 
 def get_sheet_by_filename(filename):
-    return db.sheets.find_one({"filename": filename})
+    return get_db().sheets.find_one({"filename": filename})
 
 def update_sheet_attendance(filename, attendance):
-    db.sheets.update_one({"filename": filename}, {"$set": {"attendance": attendance}})
+    get_db().sheets.update_one({"filename": filename}, {"$set": {"attendance": attendance}})
 
 def delete_sheet(filename):
-    db.sheets.delete_one({"filename": filename})
+    get_db().sheets.delete_one({"filename": filename})
 
 def export_all_sheets_to_csv():
     sheets = get_all_sheets()
