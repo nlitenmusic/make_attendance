@@ -28,11 +28,14 @@ def get_db():
             print("MongoDB CONNECTED")
         except Exception as e:
             print("MongoDB ERROR:", e)
-        db = client["attendance_db"]
+        db = client["attendance"]
     return db
 
+secret = os.getenv("FLASK_SECRET_KEY")
+if not secret:
+    raise RuntimeError("FLASK_SECRET_KEY environment variable is not set")
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "supersecretkey")
+app.secret_key = secret
 
 ATTENDANCE_DIR = Path("attendance_sheets")
 ATTENDANCE_DIR.mkdir(exist_ok=True)
@@ -103,31 +106,38 @@ def list_saved_sheets_sorted():
 
 # --- MongoDB helpers ---
 
-def save_sheet_to_db(filename, attendance):
+def save_sheet_to_db(filename, rows, dynamic_columns):
     doc = {
         "filename": filename,
-        "uploaded_at": datetime.utcnow(),
-        "attendance": attendance
+        "rows": rows,
+        "dynamic_columns": dynamic_columns,
+        "created_at": datetime.utcnow()
     }
-    get_db().sheets.replace_one({"filename": filename}, doc, upsert=True)
+    get_db()["sheets"].replace_one({"filename": filename}, doc, upsert=True)
 
 def get_all_sheets():
-    return list(get_db().sheets.find().sort("uploaded_at", -1))
+    return list(get_db()["sheets"].find({}, {"filename": 1, "created_at": 1}).sort("created_at", -1))
 
 def get_sheet_by_filename(filename):
-    return get_db().sheets.find_one({"filename": filename})
+    return get_db()["sheets"].find_one({"filename": filename})
 
-def update_sheet_attendance(filename, attendance):
-    get_db().sheets.update_one({"filename": filename}, {"$set": {"attendance": attendance}})
+def update_sheet_rows(filename, rows):
+    get_db()["sheets"].update_one({"filename": filename}, {"$set": {"rows": rows}})
+
+def update_sheet_dynamic_columns(filename, dynamic_columns, rows):
+    get_db()["sheets"].update_one({"filename": filename}, {"$set": {"dynamic_columns": dynamic_columns, "rows": rows}})
+
+def add_row_to_sheet(filename, new_row):
+    get_db()["sheets"].update_one({"filename": filename}, {"$push": {"rows": new_row}})
 
 def delete_sheet(filename):
-    get_db().sheets.delete_one({"filename": filename})
+    get_db()["sheets"].delete_one({"filename": filename})
 
 def export_all_sheets_to_csv():
-    sheets = get_all_sheets()
+    sheets = list(get_db()["sheets"].find())
     all_rows = []
     for sheet in sheets:
-        for row in sheet.get("attendance", []):
+        for row in sheet.get("rows", []):
             row_copy = dict(row)
             row_copy["filename"] = sheet["filename"]
             all_rows.append(row_copy)
@@ -150,8 +160,11 @@ def index():
             df_clean = convert_import_to_internal_schema(df_raw)
             attendance_df = build_attendance(df_clean)
             filename = request.form.get("filename") or f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
-            attendance_dict = attendance_df.to_dict(orient="records")
-            save_sheet_to_db(filename, attendance_dict)
+            rows = attendance_df.to_dict(orient="records")
+            # Extract dynamic columns from DataFrame columns (excluding known fields)
+            known_fields = {"row_id", "Name", "Age", "MemberName", "Comments", "Fee"}
+            dynamic_columns = [col for col in attendance_df.columns if col not in known_fields]
+            save_sheet_to_db(filename, rows, dynamic_columns)
             flash("Attendance sheet saved to database.")
         except Exception as e:
             flash(f"Error: {e}")
@@ -170,10 +183,9 @@ def results():
     if not sheet:
         flash("Attendance sheet not found in database.")
         return redirect(url_for("index"))
-    data = sheet.get("attendance", [])
-    binder_cols = ["row_id", "Name", "Age", "MemberName", "Comments", "Fee"]
-    dynamic_dates = [k for k in data[0].keys() if k not in binder_cols and k != "filename"] if data else []
-    return render_template("results.html", data=data, filename=filename, dynamic_dates=dynamic_dates, pretty_filename=pretty_filename)
+    rows = sheet.get("rows", [])
+    dynamic_dates = sheet.get("dynamic_columns", [])
+    return render_template("results.html", data=rows, filename=filename, dynamic_dates=dynamic_dates, pretty_filename=pretty_filename)
 
 @app.route("/save_attendance", methods=["POST"])
 def save_attendance():
@@ -182,13 +194,10 @@ def save_attendance():
         flash("Missing filename.")
         return redirect(url_for("index"))
     sheet = get_sheet_by_filename(filename)
-    if not sheet or not sheet.get("attendance"):
+    if not sheet or not sheet.get("rows"):
         flash("Sheet not found in database.")
         return redirect(url_for("index"))
-    data = sheet["attendance"]
-    binder_cols = ["row_id", "Name", "Age", "MemberName", "Comments", "Fee"]
-    dynamic_cols = [k for k in data[0].keys() if k not in binder_cols and k != "filename"] if data else []
-
+    dynamic_cols = sheet.get("dynamic_columns", [])
     names = request.form.getlist("player_name")
     ages = request.form.getlist("age")
     parents = request.form.getlist("parent")
@@ -219,7 +228,7 @@ def save_attendance():
             row[col] = vals[i] if i < len(vals) else ""
         rows.append(row)
 
-    update_sheet_attendance(filename, rows)
+    update_sheet_rows(filename, rows)
     flash("Attendance saved to database.")
     return redirect(url_for("results", filename=filename))
 
@@ -230,13 +239,18 @@ def add_date_column():
     if not filename or not new_col:
         return redirect(url_for("index"))
     sheet = get_sheet_by_filename(filename)
-    if not sheet or not sheet.get("attendance"):
+    if not sheet or not sheet.get("rows"):
         flash("Sheet not found in database.")
         return redirect(url_for("index"))
-    data = sheet["attendance"]
-    for row in data:
+    dynamic_columns = sheet.get("dynamic_columns", [])
+    if new_col in dynamic_columns:
+        flash("Date column already exists.")
+        return redirect(url_for("results", filename=filename))
+    dynamic_columns.append(new_col)
+    rows = sheet["rows"]
+    for row in rows:
         row[new_col] = ""
-    update_sheet_attendance(filename, data)
+    update_sheet_dynamic_columns(filename, dynamic_columns, rows)
     flash("Date column added.")
     return redirect(url_for("results", filename=filename))
 
@@ -246,17 +260,21 @@ def add_row():
     if not filename:
         return redirect(url_for("index"))
     sheet = get_sheet_by_filename(filename)
-    if not sheet or not sheet.get("attendance"):
+    if not sheet or not sheet.get("rows"):
         flash("Sheet not found in database.")
         return redirect(url_for("index"))
-    data = sheet["attendance"]
-    if data:
-        new_row = {c: "" for c in data[0].keys()}
-    else:
-        new_row = {"row_id": str(uuid.uuid4())}
-    new_row["row_id"] = str(uuid.uuid4())
-    data.append(new_row)
-    update_sheet_attendance(filename, data)
+    dynamic_columns = sheet.get("dynamic_columns", [])
+    new_row = {
+        "row_id": str(uuid.uuid4()),
+        "Name": "",
+        "Age": "",
+        "MemberName": "",
+        "Comments": "",
+        "Fee": ""
+    }
+    for col in dynamic_columns:
+        new_row[col] = ""
+    add_row_to_sheet(filename, new_row)
     flash("Row added.")
     return redirect(url_for("results", filename=filename))
 
