@@ -161,7 +161,6 @@ def index():
             attendance_df = build_attendance(df_clean)
             filename = request.form.get("filename") or f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
             rows = attendance_df.to_dict(orient="records")
-            # Extract dynamic columns from DataFrame columns (excluding known fields)
             known_fields = {"row_id", "Name", "Age", "MemberName", "Comments", "Fee"}
             dynamic_columns = [col for col in attendance_df.columns if col not in known_fields]
             save_sheet_to_db(filename, rows, dynamic_columns)
@@ -170,24 +169,25 @@ def index():
             flash(f"Error: {e}")
         return redirect(url_for("index"))
 
-    sheets = get_all_sheets()
-    # Group by Day → Clinic → Time
+    # ✅ Fetch ALL sheet data, including rows
+    sheets = list(get_db()["sheets"].find().sort("created_at", -1))
+
+    # ✅ Group by Day → Clinic → Time
     grouped = {}
     for sheet in sheets:
+        filename = sheet["filename"]
         for row in sheet.get("rows", []):
             day = row.get("Day")
             clinic = row.get("Clinic")
             time = row.get("Time")
-            filename = sheet["filename"]
             if not (day and clinic and time):
                 continue
-            if day not in grouped:
-                grouped[day] = {}
-            if clinic not in grouped[day]:
-                grouped[day][clinic] = {}
-            if time not in grouped[day][clinic]:
-                grouped[day][clinic][time] = []
-            grouped[day][clinic][time].append({"filename": filename, "row": row})
+            grouped.setdefault(day, {}).setdefault(clinic, {}).setdefault(time, [])
+            grouped[day][clinic][time].append({
+                "filename": filename,
+                "row": row
+            })
+
     return render_template("index.html", grouped_sheets=grouped, pretty_filename=pretty_filename)
 
 @app.route("/results", methods=["GET"])
