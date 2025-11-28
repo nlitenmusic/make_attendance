@@ -80,22 +80,51 @@
 </form>
 
 <h2 style="text-align:center; margin-top:2rem;">Saved Clinics</h2>
-{% if grouped_sheets %}
-  {% for group, sheets in grouped_sheets.items() %}
-    <h3>{{ group }}</h3>
-    <ul>
-      {% for sheet in sheets %}
-        <li>
-          <a href="{{ url_for('results', filename=sheet['filename']) }}">
-            {{ pretty_filename(sheet['filename']) }}
-          </a>
-          <form action="{{ url_for('delete_sheet_route') }}" method="post" style="display:inline;">
-            <input type="hidden" name="filename" value="{{ sheet['filename'] }}">
-            <button type="submit">Delete</button>
-          </form>
-        </li>
-      {% endfor %}
-    </ul>
+{% if sheets %}
+  {% set grouped = {} %}
+  {% for sheet in sheets %}
+    {% for row in sheet.rows %}
+      {% set day = row['Day'] %}
+      {% set clinic = row['Clinic'] %}
+      {% set time = row['Time'] %}
+      {% set filename = sheet['filename'] %}
+      {% if day not in grouped %}
+        {% set _ = grouped.update({day: {}}) %}
+      {% endif %}
+      {% if clinic not in grouped[day] %}
+        {% set _ = grouped[day].update({clinic: {}}) %}
+      {% endif %}
+      {% if time not in grouped[day][clinic] %}
+        {% set _ = grouped[day][clinic].update({time: []}) %}
+      {% endif %}
+      {% set _ = grouped[day][clinic][time].append({'filename': filename, 'row': row}) %}
+    {% endfor %}
+  {% endfor %}
+
+  {% for day, clinics in grouped.items() %}
+    <h3>{{ day }}</h3>
+    {% for clinic, times in clinics.items() %}
+      <h4 style="margin-left:1rem;">{{ clinic }}</h4>
+      <ul style="margin-left:2rem;">
+        {% for time, entries in times.items() %}
+          {% for entry in entries %}
+            <li>
+              {{ time }}
+              <a href="{{ url_for('results', filename=entry.filename) }}">
+                View Results
+              </a>
+              <form action="{{ url_for('delete_sheet_route') }}" method="post" style="display:inline;">
+                <input type="hidden" name="filename" value="{{ entry.filename }}">
+                <input type="hidden" name="day" value="{{ entry.row['Day'] }}">
+                <input type="hidden" name="clinic" value="{{ entry.row['Clinic'] }}">
+                <input type="hidden" name="time" value="{{ entry.row['Time'] }}">
+                <button type="submit">Delete</button>
+              </form>
+            </li>
+          {% endfor %}
+        {% endfor %}
+      </ul>
+    {% endfor %}
   {% endfor %}
 {% else %}
   <p style="text-align:center; opacity:.6;">No saved clinics yet.</p>

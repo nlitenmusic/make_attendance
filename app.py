@@ -294,8 +294,20 @@ def add_row():
 @app.route("/delete_sheet", methods=["POST"])
 def delete_sheet_route():
     filename = request.form.get("filename")
-    delete_sheet(filename)
-    flash(f"Deleted {filename} from database.")
+    day = request.form.get("day")
+    clinic = request.form.get("clinic")
+    time = request.form.get("time")
+    if day and clinic and time:
+        sheet = get_sheet_by_filename(filename)
+        if sheet:
+            new_rows = [row for row in sheet["rows"] if not (
+                row.get("Day") == day and row.get("Clinic") == clinic and row.get("Time") == time
+            )]
+            update_sheet_rows(filename, new_rows)
+            flash(f"Deleted {clinic} {time} on {day} from {filename}.")
+    else:
+        delete_sheet(filename)
+        flash(f"Deleted {filename} from database.")
     return redirect(url_for("index"))
 
 @app.route("/export_all", methods=["GET"])
