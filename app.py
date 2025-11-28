@@ -171,19 +171,23 @@ def index():
         return redirect(url_for("index"))
 
     sheets = get_all_sheets()
-    # Group by Day, Clinic, then Time
+    # Group by Day → Clinic → Time
     grouped = {}
     for sheet in sheets:
-        # Parse day and clinic from filename
-        base = sheet['filename'].replace('.csv', '')
-        parts = base.split('_', 1)
-        if len(parts) != 2:
-            continue
-        day, clinic = parts
-        key = f"{day} {clinic}"
-        if key not in grouped:
-            grouped[key] = []
-        grouped[key].append(sheet)
+        for row in sheet.get("rows", []):
+            day = row.get("Day")
+            clinic = row.get("Clinic")
+            time = row.get("Time")
+            filename = sheet["filename"]
+            if not (day and clinic and time):
+                continue
+            if day not in grouped:
+                grouped[day] = {}
+            if clinic not in grouped[day]:
+                grouped[day][clinic] = {}
+            if time not in grouped[day][clinic]:
+                grouped[day][clinic][time] = []
+            grouped[day][clinic][time].append({"filename": filename, "row": row})
     return render_template("index.html", grouped_sheets=grouped, pretty_filename=pretty_filename)
 
 @app.route("/results", methods=["GET"])
