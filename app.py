@@ -203,7 +203,7 @@ def index():
         grouped.append({
             "day": cfg["day"],
             "clinic": cfg["clinic"],
-            "items": items
+            "entries": items
         })
 
     return render_template("index.html", grouped_clinics=grouped, pretty_filename=pretty_filename)

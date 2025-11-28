@@ -84,7 +84,7 @@
   {% for group in grouped_clinics %}
     <h3>{{ group.day }} — {{ group.clinic }}</h3>
     <ul>
-      {% for entry in group.items %}
+      {% for entry in group.entries %}
         <li>
           <a href="{{ url_for('results', filename=entry.filename) }}">
             View Results
@@ -98,7 +98,7 @@
           </form>
         </li>
       {% endfor %}
-      {% if not group.items %}
+      {% if not group.entries %}
         <li style="opacity:.6;">No saved players for this clinic.</li>
       {% endif %}
     </ul>
