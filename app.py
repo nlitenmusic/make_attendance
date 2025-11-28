@@ -79,6 +79,23 @@ def fetch_csv_from_google(sheet_url: str) -> pd.DataFrame:
 DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 CLINIC_TOKENS = ["RedBallClinic", "OrangeBallClinic", "GreenBallClinic", "YellowBallClinic", "HighPerformanceClinic"]
 
+CLINIC_ORDER = [
+    {"day": "Monday", "clinic": "Orange Ball Clinic"},
+    {"day": "Monday", "clinic": "Green Ball Clinic"},
+    {"day": "Monday", "clinic": "Yellow Ball Clinic"},
+    {"day": "Tuesday", "clinic": "Red Ball Clinic"},
+    {"day": "Tuesday", "clinic": "Orange Ball Clinic"},
+    {"day": "Tuesday", "clinic": "High Performance Clinic"},
+    {"day": "Wednesday", "clinic": "Orange Ball Clinic"},
+    {"day": "Wednesday", "clinic": "Green Ball Clinic"},
+    {"day": "Thursday", "clinic": "Red Ball Clinic"},
+    {"day": "Thursday", "clinic": "Green Ball Clinic"},
+    {"day": "Thursday", "clinic": "High Performance Clinic"},
+    {"day": "Friday", "clinic": "Orange Ball Clinic"},
+    {"day": "Friday", "clinic": "Green Ball Clinic"},
+    {"day": "Friday", "clinic": "Yellow Ball Clinic"},
+]
+
 def sort_key(filename: str):
     base = filename.replace(".csv", "")
     parts = base.split(" ", 1)
@@ -169,26 +186,27 @@ def index():
             flash(f"Error: {e}")
         return redirect(url_for("index"))
 
-    # ✅ Fetch ALL sheet data, including rows
     sheets = list(get_db()["sheets"].find().sort("created_at", -1))
 
-    # ✅ Group by Day → Clinic → Time
-    grouped = {}
-    for sheet in sheets:
-        filename = sheet["filename"]
-        for row in sheet.get("rows", []):
-            day = row.get("Day")
-            clinic = row.get("Clinic")
-            time = row.get("Time")
-            if not (day and clinic and time):
-                continue
-            grouped.setdefault(day, {}).setdefault(clinic, {}).setdefault(time, [])
-            grouped[day][clinic][time].append({
-                "filename": filename,
-                "row": row
-            })
+    # Group by (day, clinic) in CLINIC_ORDER
+    grouped = []
+    for cfg in CLINIC_ORDER:
+        items = []
+        for sheet in sheets:
+            filename = sheet["filename"]
+            for row in sheet.get("rows", []):
+                if row.get("Day") == cfg["day"] and row.get("Clinic") == cfg["clinic"]:
+                    items.append({
+                        "filename": filename,
+                        "row": row
+                    })
+        grouped.append({
+            "day": cfg["day"],
+            "clinic": cfg["clinic"],
+            "items": items
+        })
 
-    return render_template("index.html", grouped_sheets=grouped, pretty_filename=pretty_filename)
+    return render_template("index.html", grouped_clinics=grouped, pretty_filename=pretty_filename)
 
 @app.route("/results", methods=["GET"])
 def results():

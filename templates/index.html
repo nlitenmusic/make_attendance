@@ -80,31 +80,28 @@
 </form>
 
 <h2 style="text-align:center; margin-top:2rem;">Saved Clinics</h2>
-{% if grouped_sheets %}
-  {% for day, clinics in grouped_sheets.items() %}
-    <h3>{{ day }}</h3>
-    {% for clinic, times in clinics.items() %}
-      <h4 style="margin-left:1rem;">{{ clinic }}</h4>
-      <ul style="margin-left:2rem;">
-        {% for time, entries in times.items() %}
-          {% for entry in entries %}
-            <li>
-              {{ time }}
-              <a href="{{ url_for('results', filename=entry.filename) }}">
-                View Results
-              </a>
-              <form action="{{ url_for('delete_sheet_route') }}" method="post" style="display:inline;">
-                <input type="hidden" name="filename" value="{{ entry.filename }}">
-                <input type="hidden" name="day" value="{{ entry.row['Day'] }}">
-                <input type="hidden" name="clinic" value="{{ entry.row['Clinic'] }}">
-                <input type="hidden" name="time" value="{{ entry.row['Time'] }}">
-                <button type="submit">Delete</button>
-              </form>
-            </li>
-          {% endfor %}
-        {% endfor %}
-      </ul>
-    {% endfor %}
+{% if grouped_clinics %}
+  {% for group in grouped_clinics %}
+    <h3>{{ group.day }} — {{ group.clinic }}</h3>
+    <ul>
+      {% for entry in group.items %}
+        <li>
+          <a href="{{ url_for('results', filename=entry.filename) }}">
+            View Results
+          </a>
+          <form action="{{ url_for('delete_sheet_route') }}" method="post" style="display:inline;">
+            <input type="hidden" name="filename" value="{{ entry.filename }}">
+            <input type="hidden" name="day" value="{{ entry.row['Day'] }}">
+            <input type="hidden" name="clinic" value="{{ entry.row['Clinic'] }}">
+            <input type="hidden" name="time" value="{{ entry.row['Time'] }}">
+            <button type="submit">Delete</button>
+          </form>
+        </li>
+      {% endfor %}
+      {% if not group.items %}
+        <li style="opacity:.6;">No saved players for this clinic.</li>
+      {% endif %}
+    </ul>
   {% endfor %}
 {% else %}
   <p style="text-align:center; opacity:.6;">No saved clinics yet.</p>
