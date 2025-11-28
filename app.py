@@ -28,7 +28,7 @@ def get_db():
             print("MongoDB CONNECTED")
         except Exception as e:
             print("MongoDB ERROR:", e)
-        db = client["attendance"]
+        db = client["attendance_db"]
     return db
 
 secret = os.getenv("FLASK_SECRET_KEY")
