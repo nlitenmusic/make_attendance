@@ -171,7 +171,20 @@ def index():
         return redirect(url_for("index"))
 
     sheets = get_all_sheets()
-    return render_template("index.html", sheets=sheets, pretty_filename=pretty_filename)
+    # Group by Day, Clinic, then Time
+    grouped = {}
+    for sheet in sheets:
+        # Parse day and clinic from filename
+        base = sheet['filename'].replace('.csv', '')
+        parts = base.split('_', 1)
+        if len(parts) != 2:
+            continue
+        day, clinic = parts
+        key = f"{day} {clinic}"
+        if key not in grouped:
+            grouped[key] = []
+        grouped[key].append(sheet)
+    return render_template("index.html", grouped_sheets=grouped, pretty_filename=pretty_filename)
 
 @app.route("/results", methods=["GET"])
 def results():

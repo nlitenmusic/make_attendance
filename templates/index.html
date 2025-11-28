@@ -79,24 +79,26 @@
   <button type="submit">Create Sheets</button>
 </form>
 
-<h2 style="text-align:center; margin-top:2rem;">Saved Sheets</h2>
-
-{% if sheets %}
-  <ul>
-    {% for sheet in sheets %}
-      <li>
-        <a href="{{ url_for('results', filename=sheet['filename']) }}">
-          {{ pretty_filename(sheet['filename']) }}
-        </a>
-        <form action="{{ url_for('delete_sheet_route') }}" method="post" style="display:inline;">
-          <input type="hidden" name="filename" value="{{ sheet['filename'] }}">
-          <button type="submit">Delete</button>
-        </form>
-      </li>
-    {% endfor %}
-  </ul>
+<h2 style="text-align:center; margin-top:2rem;">Saved Clinics</h2>
+{% if grouped_sheets %}
+  {% for group, sheets in grouped_sheets.items() %}
+    <h3>{{ group }}</h3>
+    <ul>
+      {% for sheet in sheets %}
+        <li>
+          <a href="{{ url_for('results', filename=sheet['filename']) }}">
+            {{ pretty_filename(sheet['filename']) }}
+          </a>
+          <form action="{{ url_for('delete_sheet_route') }}" method="post" style="display:inline;">
+            <input type="hidden" name="filename" value="{{ sheet['filename'] }}">
+            <button type="submit">Delete</button>
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endfor %}
 {% else %}
-  <p style="text-align:center; opacity:.6;">No saved sheets yet.</p>
+  <p style="text-align:center; opacity:.6;">No saved clinics yet.</p>
 {% endif %}
 
 </body>
