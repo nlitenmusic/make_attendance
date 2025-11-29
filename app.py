@@ -176,26 +176,68 @@ def index():
             df_raw = fetch_csv_from_google(sheet_url)
             df_clean = convert_import_to_internal_schema(df_raw)
             attendance_df = build_attendance(df_clean)
-            filename = request.form.get("filename") or f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+
+            # convert dataframe to rows
             rows = attendance_df.to_dict(orient="records")
+
+            # known static fields -> dynamic columns are everything else
             known_fields = {"row_id", "Name", "Age", "MemberName", "Comments", "Fee"}
             dynamic_columns = [col for col in attendance_df.columns if col not in known_fields]
-            save_sheet_to_db(filename, rows, dynamic_columns)
-            flash("Attendance sheet saved to database.")
+
+            # Group incoming rows by (Day, Clinic) so we save one document per clinic/day
+            from collections import defaultdict
+            groups = defaultdict(list)
+            for r in rows:
+                day = r.get("Day")
+                clinic = r.get("Clinic")
+                if not day or not clinic:
+                    # skip rows missing grouping keys
+                    continue
+                groups[(day, clinic)].append(r)
+
+            # For each (day,clinic) replace existing document (if any) so there is only one sheet per clinic/day
+            for (day, clinic), group_rows in groups.items():
+                # create a stable canonical filename for this clinic/day (helps UX)
+                safe_clinic = re.sub(r"\s+", "", clinic)
+                date_tag = datetime.utcnow().strftime("%Y%m%d")
+                filename = f"{day}_{safe_clinic}_{date_tag}.csv"
+
+                doc = {
+                    "filename": filename,
+                    "rows": group_rows,
+                    "dynamic_columns": dynamic_columns,
+                    "created_at": datetime.utcnow()
+                }
+
+                # Replace any existing document that contains rows for the same Day+Clinic.
+                # This ensures exactly one saved sheet per clinic per day.
+                get_db()["sheets"].replace_one(
+                    {"rows.Day": day, "rows.Clinic": clinic},
+                    doc,
+                    upsert=True
+                )
+
+            flash("Attendance sheet(s) saved to database (one per clinic/day).")
         except Exception as e:
             flash(f"Error: {e}")
         return redirect(url_for("index"))
 
+    # Fetch full documents (including rows)
     sheets = list(get_db()["sheets"].find().sort("created_at", -1))
 
-    # Group by (day, clinic) in CLINIC_ORDER
+    # Group by (day, clinic) following CLINIC_ORDER and deduplicate entries
     grouped = []
     for cfg in CLINIC_ORDER:
         items = []
+        seen = set()  # dedupe by (day,clinic,time,filename) to avoid duplicates showing
         for sheet in sheets:
-            filename = sheet["filename"]
+            filename = sheet.get("filename")
             for row in sheet.get("rows", []):
                 if row.get("Day") == cfg["day"] and row.get("Clinic") == cfg["clinic"]:
+                    key = (row.get("Day"), row.get("Clinic"), row.get("Time"), filename)
+                    if key in seen:
+                        continue
+                    seen.add(key)
                     items.append({
                         "filename": filename,
                         "row": row
