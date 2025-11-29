@@ -1,8 +1,9 @@
 <!doctype html>
 <html lang="en">
 <head>
+<meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Attendance - {{ pretty_filename(filename) }}</title>
+<title>Attendance - {{ day }} — {{ clinic }}</title>
 <style>
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding:20px; background:#fafafa; color:#222; }
 table { width:100%; border-collapse:collapse; background:white; }
@@ -18,7 +19,7 @@ input[type="text"] { width:100%; border:none; padding:.25rem; box-sizing:border-
 </head>
 <body>
 <a href="{{ url_for('index') }}"><button class="btn">⬅ Back</button></a>
-<h1>{{ pretty_filename(filename) }}</h1>
+<h1>Attendance — {{ day }} — {{ clinic }}</h1>
 
 <form method="post" action="{{ url_for('save_attendance') }}">
   <input type="hidden" name="filename" value="{{ filename }}">
