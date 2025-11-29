@@ -235,12 +235,17 @@ def index():
     grouped = []
     for cfg in CLINIC_ORDER:
         items = []
-        seen = set()  # dedupe by (day,clinic,time,filename) to avoid duplicates showing
+        seen = set()  # dedupe by row_id to avoid counting the same player multiple times
         for sheet in sheets:
             filename = sheet.get("filename")
             for row in sheet.get("rows", []):
-                if row.get("Day") == cfg["day"] and row.get("Clinic") == cfg["clinic"]:
-                    key = (row.get("Day"), row.get("Clinic"), row.get("Time"), filename)
+                # normalize stored values (trim + casefold) to be robust to whitespace/casing
+                row_day = (row.get("Day") or "").strip()
+                row_clinic = (row.get("Clinic") or "").strip()
+                if row_day.casefold() == cfg["day"].casefold() and row_clinic.casefold() == cfg["clinic"].casefold():
+                    # dedupe by unique row_id (fall back to filename+index if missing)
+                    rid = row.get("row_id") or f"{filename}:{len(items)}"
+                    key = (rid, filename)
                     if key in seen:
                         continue
                     seen.add(key)
