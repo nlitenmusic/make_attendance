@@ -289,6 +289,7 @@ def results():
 def save_attendance():
     day = request.form.get("day")
     clinic = request.form.get("clinic")
+    app.logger.info("save_attendance called: day=%s clinic=%s", day, clinic)
     if not day or not clinic:
         flash("Missing clinic information.")
         return redirect(url_for("index"))
@@ -320,17 +321,20 @@ def save_attendance():
     target = get_sheet_for_clinic(day, clinic)
     if target:
         filename = target["filename"]
+        app.logger.info("save_attendance: target sheet filename=%s", filename)
         # ensure dynamic_columns merged if new columns present
         existing_dyn = set(target.get("dynamic_columns", []))
         merged_dyn = sorted(existing_dyn.union(dynamic_cols))
         if merged_dyn != sorted(existing_dyn):
-            get_db()["sheets"].update_one({"filename": filename}, {"$set": {"dynamic_columns": merged_dyn}})
+            res = get_db()["sheets"].update_one({"filename": filename}, {"$set": {"dynamic_columns": merged_dyn}})
+            app.logger.info("Updated dynamic_columns on %s matched=%s modified=%s", filename, res.matched_count, res.modified_count)
 
         for i in range(n):
             rid = row_ids[i] if i < len(row_ids) else None
             # deletion via delete_flag
             if rid and i < len(delete_flags) and delete_flags[i] == "1":
-                get_db()["sheets"].update_one({"filename": filename}, {"$pull": {"rows": {"row_id": rid}}})
+                res = get_db()["sheets"].update_one({"filename": filename}, {"$pull": {"rows": {"row_id": rid}}})
+                app.logger.info("Pulled row_id=%s from %s matched=%s modified=%s", rid, filename, res.matched_count, res.modified_count)
                 continue
 
             if rid:
@@ -345,11 +349,12 @@ def save_attendance():
                     update_fields[f"rows.$[elem].{col}"] = vals[i] if i < len(vals) else ""
                 contains = get_db()["sheets"].count_documents({"filename": filename, "rows.row_id": rid}) > 0
                 if contains:
-                    get_db()["sheets"].update_one(
+                    res = get_db()["sheets"].update_one(
                         {"filename": filename},
                         {"$set": update_fields},
                         array_filters=[{"elem.row_id": rid}]
                     )
+                    app.logger.info("Updated row_id=%s in %s matched=%s modified=%s", rid, filename, res.matched_count, res.modified_count)
                 else:
                     new_row = {
                         "row_id": rid,
@@ -363,7 +368,8 @@ def save_attendance():
                     }
                     for col, vals in dynamic_values.items():
                         new_row[col] = vals[i] if i < len(vals) else ""
-                    get_db()["sheets"].update_one({"filename": filename}, {"$push": {"rows": new_row}})
+                    res = get_db()["sheets"].update_one({"filename": filename}, {"$push": {"rows": new_row}})
+                    app.logger.info("Pushed new row_id=%s into %s matched=%s modified=%s", rid, filename, res.matched_count, res.modified_count)
             else:
                 # create new row and push
                 new_row = {
@@ -378,8 +384,10 @@ def save_attendance():
                 }
                 for col, vals in dynamic_values.items():
                     new_row[col] = vals[i] if i < len(vals) else ""
-                get_db()["sheets"].update_one({"filename": filename}, {"$push": {"rows": new_row}})
+                res = get_db()["sheets"].update_one({"filename": filename}, {"$push": {"rows": new_row}})
+                app.logger.info("Pushed generated row_id=%s into %s matched=%s modified=%s", new_row["row_id"], filename, res.matched_count, res.modified_count)
     else:
+        app.logger.info("save_attendance: no target sheet found for %s — %s; creating new sheet", day, clinic)
         # create a new sheet doc for this clinic/day
         new_rows = []
         for i in range(n):
@@ -403,78 +411,56 @@ def save_attendance():
         date_tag = datetime.utcnow().strftime("%Y%m%d")
         filename = f"{day}_{safe_clinic}_{date_tag}.csv"
         save_sheet_to_db(filename, new_rows, dynamic_cols)
+        app.logger.info("Created new sheet %s with %d rows", filename, len(new_rows))
 
     flash("Attendance saved for %s — %s" % (day, clinic))
     return redirect(url_for("results", day=day, clinic=clinic))
-
 
 @app.route("/add_row", methods=["POST"])
 def add_row():
     day = request.form.get("day")
     clinic = request.form.get("clinic")
+    app.logger.info("add_row called: day=%s clinic=%s", day, clinic)
     if not day or not clinic:
         flash("Missing clinic information.")
         return redirect(url_for("index"))
 
-    # canonical safe clinic token used in filenames
     safe_clinic = re.sub(r"\s+", "", clinic)
 
     target = get_sheet_for_clinic(day, clinic)
+    if not target:
+        prefix_re = f"^{re.escape(day)}_{re.escape(safe_clinic)}"
+        target = get_db()["sheets"].find_one({"filename": {"$regex": prefix_re}}, sort=[("created_at", -1)])
+
+    new_row = {
+        "row_id": str(uuid.uuid4()),
+        "Day": day,
+        "Clinic": clinic,
+        "Name": "",
+        "Age": "",
+        "MemberName": "",
+        "Comments": "",
+        "Fee": ""
+    }
+
     if target:
         filename = target["filename"]
         dynamic_columns = target.get("dynamic_columns", [])
-        new_row = {
-            "row_id": str(uuid.uuid4()),
-            "Day": day,
-            "Clinic": clinic,
-            "Name": "",
-            "Age": "",
-            "MemberName": "",
-            "Comments": "",
-            "Fee": ""
-        }
         for col in dynamic_columns:
             new_row[col] = ""
         add_row_to_sheet(filename, new_row)
+        # verify insertion
+        found = get_db()["sheets"].find_one({"filename": filename, "rows.row_id": new_row["row_id"]})
+        app.logger.info("add_row: pushed row_id=%s into %s found=%s", new_row["row_id"], filename, bool(found))
     else:
-        # fallback: try to find an existing sheet whose filename matches the day+safe_clinic prefix
-        fallback = get_db()["sheets"].find_one({"filename": {"$regex": f"^{re.escape(day)}_{re.escape(safe_clinic)}"}})
-        if fallback:
-            filename = fallback["filename"]
-            dynamic_columns = fallback.get("dynamic_columns", [])
-            new_row = {
-                "row_id": str(uuid.uuid4()),
-                "Day": day,
-                "Clinic": clinic,
-                "Name": "",
-                "Age": "",
-                "MemberName": "",
-                "Comments": "",
-                "Fee": ""
-            }
-            for col in dynamic_columns:
-                new_row[col] = ""
-            add_row_to_sheet(filename, new_row)
-        else:
-            # no existing sheet found — create a new sheet doc once
-            dynamic_columns = []
-            new_row = {
-                "row_id": str(uuid.uuid4()),
-                "Day": day,
-                "Clinic": clinic,
-                "Name": "",
-                "Age": "",
-                "MemberName": "",
-                "Comments": "",
-                "Fee": ""
-            }
-            date_tag = datetime.utcnow().strftime("%Y%m%d")
-            filename = f"{day}_{safe_clinic}_{date_tag}.csv"
-            save_sheet_to_db(filename, [new_row], dynamic_columns)
+        dynamic_columns = []
+        date_tag = datetime.utcnow().strftime("%Y%m%d")
+        filename = f"{day}_{safe_clinic}_{date_tag}.csv"
+        save_sheet_to_db(filename, [new_row], dynamic_columns)
+        app.logger.info("add_row: created new sheet %s with row_id=%s", filename, new_row["row_id"])
 
     flash("Row added.")
     return redirect(url_for("results", day=day, clinic=clinic))
-
 
 @app.route("/add_date_column", methods=["POST"])
 def add_date_column():
@@ -510,15 +496,16 @@ def delete_row():
     row_id = request.form.get("row_id")
     day = request.form.get("day")
     clinic = request.form.get("clinic")
+    app.logger.info("delete_row called: row_id=%s day=%s clinic=%s", row_id, day, clinic)
     if not row_id:
         flash("Missing row_id.")
         return redirect(url_for("index"))
-    get_db()["sheets"].update_many({}, {"$pull": {"rows": {"row_id": row_id}}})
+    res = get_db()["sheets"].update_many({}, {"$pull": {"rows": {"row_id": row_id}}})
+    app.logger.info("delete_row: update_many matched=%s modified=%s", res.matched_count, res.modified_count)
     flash("Row deleted.")
     if day and clinic:
         return redirect(url_for("results", day=day, clinic=clinic))
     return redirect(url_for("index"))
-
 
 @app.route("/delete_sheet", methods=["POST"])
 def delete_sheet_route():
