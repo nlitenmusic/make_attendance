@@ -119,7 +119,43 @@
 </form>
 
 <h2 style="text-align:center; margin-top:2rem;">Saved Clinics</h2>
-{% if grouped_clinics %}
+
+{% if grouped_sessions %}
+  {% for sess in grouped_sessions %}
+    <div class="session">
+      <h2 style="margin-top:1rem; margin-bottom:.5rem;">{{ sess.session }}</h2>
+
+      {% for group in sess.clinics %}
+        <div class="group">
+          <h3>{{ group.day }} — {{ group.clinic }}</h3>
+
+          <div class="clinic-actions">
+            <a href="{{ url_for('results', day=group.day, clinic=group.clinic) }}">
+              <button class="btn view">Open</button>
+            </a>
+            <span class="small">{{ group.entries|length }} saved player{{ "s" if group.entries|length != 1 }}</span>
+          </div>
+
+          {% if group.entries %}
+            <ul>
+              {% for entry in group.entries %}
+                <li>
+                  {{ entry.row.get('Name','(no name)') }}
+                  <span class="small">• {{ entry.row.get('Time','') }}</span>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="empty">No saved players for this clinic.</p>
+          {% endif %}
+        </div>
+      {% endfor %}
+
+    </div>
+  {% endfor %}
+
+{% elif grouped_clinics %}
+  {# fallback for older behaviour: render flat list with the same nice UI #}
   {% for group in grouped_clinics %}
     <div class="group">
       <h3>{{ group.day }} — {{ group.clinic }}</h3>
@@ -148,17 +184,6 @@
 {% else %}
   <p style="text-align:center; opacity:.6;">No saved clinics yet.</p>
 {% endif %}
-
-{% for sess in grouped_sessions %}
-  <h2>{{ sess.session }}</h2>
-  {% for clinic in sess.clinics %}
-    <div class="clinic">
-      <h3>{{ clinic.day }} — {{ clinic.clinic }}</h3>
-      <p>{{ clinic.entries|length }} saved players</p>
-      <a href="{{ url_for('results', day=clinic.day, clinic=clinic.clinic) }}">Open</a>
-    </div>
-  {% endfor %}
-{% endfor %}
 
 </body>
 </html>
