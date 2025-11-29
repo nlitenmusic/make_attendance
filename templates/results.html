@@ -5,79 +5,85 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Attendance - {{ day }} — {{ clinic }}</title>
 <style>
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding:20px; background:#fafafa; color:#222; }
-table { width:100%; border-collapse:collapse; background:white; }
-th, td { border:1px solid #ddd; padding:.5rem; text-align:left; }
-th { background:#f5f5f5; }
-input[type="text"] { width:100%; border:none; padding:.25rem; box-sizing:border-box; }
-.btn { padding:.5rem .75rem; border-radius:6px; border:none; cursor:pointer; }
-.add { background:#2ecc71; color:white; }
-.save { background:#007bff; color:white; }
-.del { background:#ff4b4b; color:white; }
-.row-actions { display:flex; gap:.5rem; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding:20px; background:#fafafa; color:#222; }
+  .top { display:flex; gap:1rem; align-items:center; margin-bottom:1rem; }
+  .btn { padding:.5rem .75rem; border-radius:6px; border:none; cursor:pointer; }
+  .back { background:#ddd; }
+  .save { background:#007bff; color:white; }
+  .add { background:#2ecc71; color:white; }
+  .del { background:#ff4b4b; color:white; }
+  table { width:100%; border-collapse:collapse; background:white; }
+  th, td { border:1px solid #ddd; padding:.5rem; text-align:left; }
+  th { background:#f5f5f5; }
+  input[type="text"] { width:100%; border:none; padding:.25rem; box-sizing:border-box; }
+  form.inline { display:inline-block; margin:0; }
+  .row-actions { display:flex; gap:.5rem; }
 </style>
 </head>
 <body>
-<a href="{{ url_for('index') }}"><button class="btn">⬅ Back</button></a>
-<h1>Attendance — {{ day }} — {{ clinic }}</h1>
-
-<form method="post" action="{{ url_for('save_attendance') }}">
-  <input type="hidden" name="day" value="{{ day }}">
-  <input type="hidden" name="clinic" value="{{ clinic }}">
-  <table>
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Age</th>
-        <th>Member Name</th>
-        <th>Comments</th>
-        <th>Fee</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in data %}
-        <tr>
-          <td><input type="text" name="player_name" value="{{ row.get('Name','') }}"></td>
-          <td><input type="text" name="age" value="{{ row.get('Age','') }}"></td>
-          <td><input type="text" name="parent" value="{{ row.get('MemberName','') }}"></td>
-          <td><input type="text" name="comments" value="{{ row.get('Comments','') }}"></td>
-          <td><input type="text" name="fee" value="{{ row.get('Fee','') }}"></td>
-
-          <input type="hidden" name="row_id" value="{{ row.get('row_id','') }}">
-          <input type="hidden" name="delete_flag" value="0">
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <div style="margin-top:1rem;">
-    <button type="submit" class="save btn">Save Attendance</button>
+  <div class="top">
+    <a href="{{ url_for('index') }}"><button class="btn back">⬅ Back</button></a>
+    <h1 style="margin:0;">Attendance — {{ day }} — {{ clinic }}</h1>
   </div>
-</form>
 
-<div style="margin-top:1rem;">
-  <form method="post" action="{{ url_for('add_row') }}" style="display:inline;">
-    <input type="hidden" name="filename" value="{{ filename }}">
+  <form method="post" action="{{ url_for('save_attendance') }}">
     <input type="hidden" name="day" value="{{ day }}">
     <input type="hidden" name="clinic" value="{{ clinic }}">
-    <button class="add btn">+ Add Row</button>
-  </form>  
 
-  <form method="post" action="{{ url_for('add_date_column') }}" style="display:inline; margin-left:1rem;">
-    <input type="hidden" name="filename" value="{{ filename }}">
-    <input type="hidden" name="day" value="{{ day }}">
-    <input type="hidden" name="clinic" value="{{ clinic }}">
-    <input type="text" name="new_date" placeholder="New date header (e.g. 1/10)" required>
-    <button class="add btn">+ Add Date Column</button>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Age</th>
+          <th>Member Name</th>
+          <th>Comments</th>
+          <th>Fee</th>
+          <th style="width:140px">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in data %}
+          <tr>
+            <td><input type="text" name="player_name" value="{{ row.get('Name','') }}"></td>
+            <td><input type="text" name="age" value="{{ row.get('Age','') }}"></td>
+            <td><input type="text" name="parent" value="{{ row.get('MemberName','') }}"></td>
+            <td><input type="text" name="comments" value="{{ row.get('Comments','') }}"></td>
+            <td><input type="text" name="fee" value="{{ row.get('Fee','') }}"></td>
+
+            <td class="row-actions">
+              <input type="hidden" name="row_id" value="{{ row.get('row_id','') }}">
+              <input type="hidden" name="delete_flag" value="0">
+              <!-- Delete single row form -->
+              <form method="post" action="{{ url_for('delete_row') }}" class="inline">
+                <input type="hidden" name="row_id" value="{{ row.get('row_id','') }}">
+                <input type="hidden" name="day" value="{{ day }}">
+                <input type="hidden" name="clinic" value="{{ clinic }}">
+                <button type="submit" class="btn del">Delete</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div style="margin-top:1rem;">
+      <button type="submit" class="btn save">Save Attendance</button>
+    </div>
   </form>
-</div>
 
-<script>
-function markDelete(btn){
-  const delHidden = btn.parentElement.querySelector('input[name="delete_flag"]');
-  delHidden.value = "1";
-  btn.closest('tr').style.opacity = 0.5;
-}
-</script>
+  <div style="margin-top:1rem; display:flex; gap:.5rem; align-items:center;">
+    <form method="post" action="{{ url_for('add_row') }}">
+      <input type="hidden" name="day" value="{{ day }}">
+      <input type="hidden" name="clinic" value="{{ clinic }}">
+      <button class="btn add" type="submit">+ Add Row</button>
+    </form>
 
+    <form method="post" action="{{ url_for('add_date_column') }}" style="display:inline;">
+      <input type="hidden" name="day" value="{{ day }}">
+      <input type="hidden" name="clinic" value="{{ clinic }}">
+      <input type="text" name="new_date" placeholder="New date header (e.g. 1/10)" required>
+      <button class="btn" type="submit">+ Add Date Column</button>
+    </form>
+  </div>
 </body>
 </html>

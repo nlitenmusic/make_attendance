@@ -286,14 +286,12 @@ def results():
 
 @app.route("/save_attendance", methods=["POST"])
 def save_attendance():
-    # Now expect day + clinic to identify which clinic's rows are being edited
     day = request.form.get("day")
     clinic = request.form.get("clinic")
     if not day or not clinic:
         flash("Missing clinic information.")
         return redirect(url_for("index"))
 
-    # Reconstruct rows from form (same logic as before)
     names = request.form.getlist("player_name")
     ages = request.form.getlist("age")
     parents = request.form.getlist("parent")
@@ -302,7 +300,7 @@ def save_attendance():
     row_ids = request.form.getlist("row_id")
     delete_flags = request.form.getlist("delete_flag")
 
-    # Determine dynamic columns from DB (union of all dynamic_columns)
+    # union of dynamic columns across DB
     all_sheets = list(get_db()["sheets"].find())
     dynamic_cols = set()
     for s in all_sheets:
@@ -310,96 +308,202 @@ def save_attendance():
             dynamic_cols.add(c)
     dynamic_cols = list(dynamic_cols)
 
+    # collect dynamic values per submitted row
     dynamic_values = {}
     for col in dynamic_cols:
         key = f"date__{col}"
         dynamic_values[col] = request.form.getlist(key) if key in request.form else [""] * len(names)
 
-    rows = []
     n = len(names)
-    for i in range(n):
-        if i < len(delete_flags) and delete_flags[i] == "1":
-            continue
-        row = {
-            "row_id": row_ids[i] if i < len(row_ids) else str(uuid.uuid4()),
-            "Day": day,
-            "Clinic": clinic,
-            "Name": names[i] if i < len(names) else "",
-            "Age": ages[i] if i < len(ages) else "",
-            "MemberName": parents[i] if i < len(parents) else "",
-            "Comments": comments[i] if i < len(comments) else "",
-            "Fee": fees[i] if i < len(fees) else ""
-        }
-        for col, vals in dynamic_values.items():
-            row[col] = vals[i] if i < len(vals) else ""
-        rows.append(row)
 
-    # Find an existing sheet that contains this clinic/day
     target = get_sheet_for_clinic(day, clinic)
     if target:
         filename = target["filename"]
-        # Remove existing rows for this day+clinic in that doc, then append updated rows
-        kept = [r for r in target.get("rows", []) if not (r.get("Day") == day and r.get("Clinic") == clinic)]
-        # merge dynamic columns
+        # ensure dynamic_columns merged if new columns present
         existing_dyn = set(target.get("dynamic_columns", []))
         merged_dyn = sorted(existing_dyn.union(dynamic_cols))
-        new_rows = kept + rows
-        update_sheet_dynamic_columns(filename, merged_dyn, new_rows)
+        if merged_dyn != sorted(existing_dyn):
+            # update dynamic_columns on doc (rows will be updated below)
+            get_db()["sheets"].update_one({"filename": filename}, {"$set": {"dynamic_columns": merged_dyn}})
+
+        for i in range(n):
+            # handle deletion
+            rid = row_ids[i] if i < len(row_ids) else None
+            if rid and i < len(delete_flags) and delete_flags[i] == "1":
+                get_db()["sheets"].update_one({"filename": filename}, {"$pull": {"rows": {"row_id": rid}}})
+                continue
+
+            # build the field update for this row
+            if rid:
+                update_fields = {}
+                update_fields["rows.$[elem].Name"] = names[i] if i < len(names) else ""
+                update_fields["rows.$[elem].Age"] = ages[i] if i < len(ages) else ""
+                update_fields["rows.$[elem].MemberName"] = parents[i] if i < len(parents) else ""
+                update_fields["rows.$[elem].Comments"] = comments[i] if i < len(comments) else ""
+                update_fields["rows.$[elem].Fee"] = fees[i] if i < len(fees) else ""
+                for col, vals in dynamic_values.items():
+                    update_fields[f"rows.$[elem].{col}"] = vals[i] if i < len(vals) else ""
+                # if row_id exists in this doc, update in-place; otherwise treat as new row
+                contains = get_db()["sheets"].count_documents({"filename": filename, "rows.row_id": rid}) > 0
+                if contains:
+                    get_db()["sheets"].update_one(
+                        {"filename": filename},
+                        {"$set": update_fields},
+                        array_filters=[{"elem.row_id": rid}]
+                    )
+                else:
+                    # push as new row (preserve Day/Clinic)
+                    new_row = {
+                        "row_id": rid,
+                        "Day": day,
+                        "Clinic": clinic,
+                        "Name": names[i] if i < len(names) else "",
+                        "Age": ages[i] if i < len(ages) else "",
+                        "MemberName": parents[i] if i < len(parents) else "",
+                        "Comments": comments[i] if i < len(comments) else "",
+                        "Fee": fees[i] if i < len(fees) else ""
+                    }
+                    for col, vals in dynamic_values.items():
+                        new_row[col] = vals[i] if i < len(vals) else ""
+                    get_db()["sheets"].update_one({"filename": filename}, {"$push": {"rows": new_row}})
+            else:
+                # row_id missing -> create new row and push
+                new_row = {
+                    "row_id": str(uuid.uuid4()),
+                    "Day": day,
+                    "Clinic": clinic,
+                    "Name": names[i] if i < len(names) else "",
+                    "Age": ages[i] if i < len(ages) else "",
+                    "MemberName": parents[i] if i < len(parents) else "",
+                    "Comments": comments[i] if i < len(comments) else "",
+                    "Fee": fees[i] if i < len(fees) else ""
+                }
+                for col, vals in dynamic_values.items():
+                    new_row[col] = vals[i] if i < len(vals) else ""
+                get_db()["sheets"].update_one({"filename": filename}, {"$push": {"rows": new_row}})
     else:
-        # No existing doc contains this clinic; create a new sheet doc
+        # no sheet exists for this clinic/day — create a new sheet doc (one-time)
+        new_rows = []
+        for i in range(n):
+            if i < len(delete_flags) and delete_flags[i] == "1":
+                continue
+            rid = row_ids[i] if i < len(row_ids) and row_ids[i] else str(uuid.uuid4())
+            r = {
+                "row_id": rid,
+                "Day": day,
+                "Clinic": clinic,
+                "Name": names[i] if i < len(names) else "",
+                "Age": ages[i] if i < len(ages) else "",
+                "MemberName": parents[i] if i < len(parents) else "",
+                "Comments": comments[i] if i < len(comments) else "",
+                "Fee": fees[i] if i < len(fees) else ""
+            }
+            for col, vals in dynamic_values.items():
+                r[col] = vals[i] if i < len(vals) else ""
+            new_rows.append(r)
         safe_clinic = re.sub(r"\s+", "", clinic)
         date_tag = datetime.utcnow().strftime("%Y%m%d")
         filename = f"{day}_{safe_clinic}_{date_tag}.csv"
-        save_sheet_to_db(filename, rows, dynamic_cols)
+        save_sheet_to_db(filename, new_rows, dynamic_cols)
 
     flash("Attendance saved for %s — %s" % (day, clinic))
     return redirect(url_for("results", day=day, clinic=clinic))
 
-@app.route("/add_date_column", methods=["POST"])
-def add_date_column():
-    filename = request.form.get("filename")
-    new_col = request.form.get("new_date", "").strip()
-    if not filename or not new_col:
-        return redirect(url_for("index"))
-    sheet = get_sheet_by_filename(filename)
-    if not sheet or not sheet.get("rows"):
-        flash("Sheet not found in database.")
-        return redirect(url_for("index"))
-    dynamic_columns = sheet.get("dynamic_columns", [])
-    if new_col in dynamic_columns:
-        flash("Date column already exists.")
-        return redirect(url_for("results", filename=filename))
-    dynamic_columns.append(new_col)
-    rows = sheet["rows"]
-    for row in rows:
-        row[new_col] = ""
-    update_sheet_dynamic_columns(filename, dynamic_columns, rows)
-    flash("Date column added.")
-    return redirect(url_for("results", filename=filename))
 
 @app.route("/add_row", methods=["POST"])
 def add_row():
-    filename = request.form.get("filename")
-    if not filename:
+    # now uses day+clinic (not filename)
+    day = request.form.get("day")
+    clinic = request.form.get("clinic")
+    if not day or not clinic:
+        flash("Missing clinic information.")
         return redirect(url_for("index"))
-    sheet = get_sheet_by_filename(filename)
-    if not sheet or not sheet.get("rows"):
-        flash("Sheet not found in database.")
-        return redirect(url_for("index"))
-    dynamic_columns = sheet.get("dynamic_columns", [])
-    new_row = {
-        "row_id": str(uuid.uuid4()),
-        "Name": "",
-        "Age": "",
-        "MemberName": "",
-        "Comments": "",
-        "Fee": ""
-    }
-    for col in dynamic_columns:
-        new_row[col] = ""
-    add_row_to_sheet(filename, new_row)
+
+    target = get_sheet_for_clinic(day, clinic)
+    if target:
+        filename = target["filename"]
+        dynamic_columns = target.get("dynamic_columns", [])
+        new_row = {
+            "row_id": str(uuid.uuid4()),
+            "Day": day,
+            "Clinic": clinic,
+            "Name": "",
+            "Age": "",
+            "MemberName": "",
+            "Comments": "",
+            "Fee": ""
+        }
+        for col in dynamic_columns:
+            new_row[col] = ""
+        add_row_to_sheet(filename, new_row)
+    else:
+        # create a new sheet doc with a single empty row
+        dynamic_columns = []
+        new_row = {
+            "row_id": str(uuid.uuid4()),
+            "Day": day,
+            "Clinic": clinic,
+            "Name": "",
+            "Age": "",
+            "MemberName": "",
+            "Comments": "",
+            "Fee": ""
+        }
+        safe_clinic = re.sub(r"\s+", "", clinic)
+        date_tag = datetime.utcnow().strftime("%Y%m%d")
+        filename = f"{day}_{safe_clinic}_{date_tag}.csv"
+        save_sheet_to_db(filename, [new_row], dynamic_columns)
+
     flash("Row added.")
-    return redirect(url_for("results", filename=filename))
+    return redirect(url_for("results", day=day, clinic=clinic))
+
+
+@app.route("/add_date_column", methods=["POST"])
+def add_date_column():
+    # accept day+clinic instead of filename
+    day = request.form.get("day")
+    clinic = request.form.get("clinic")
+    new_col = request.form.get("new_date", "").strip()
+    if not day or not clinic or not new_col:
+        flash("Missing parameters.")
+        return redirect(url_for("index"))
+
+    sheet = get_sheet_for_clinic(day, clinic)
+    if not sheet:
+        flash("Sheet not found for that clinic.")
+        return redirect(url_for("results", day=day, clinic=clinic))
+
+    filename = sheet["filename"]
+    dynamic_columns = sheet.get("dynamic_columns", [])
+    if new_col in dynamic_columns:
+        flash("Date column already exists.")
+        return redirect(url_for("results", day=day, clinic=clinic))
+
+    dynamic_columns.append(new_col)
+    rows = sheet.get("rows", [])
+    for row in rows:
+        row[new_col] = row.get(new_col, "")
+    update_sheet_dynamic_columns(filename, dynamic_columns, rows)
+    flash("Date column added.")
+    return redirect(url_for("results", day=day, clinic=clinic))
+
+
+@app.route("/delete_row", methods=["POST"])
+def delete_row():
+    row_id = request.form.get("row_id")
+    day = request.form.get("day")
+    clinic = request.form.get("clinic")
+    if not row_id:
+        flash("Missing row_id.")
+        return redirect(url_for("index"))
+    # remove row from all sheet documents that contain it
+    get_db()["sheets"].update_many({}, {"$pull": {"rows": {"row_id": row_id}}})
+    flash("Row deleted.")
+    # prefer redirect back to the clinic view if provided
+    if day and clinic:
+        return redirect(url_for("results", day=day, clinic=clinic))
+    return redirect(url_for("index"))
+
 
 @app.route("/delete_sheet", methods=["POST"])
 def delete_sheet_route():

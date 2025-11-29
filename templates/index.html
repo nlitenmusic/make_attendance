@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Attendance Sheets</title>
+<title>Saved Clinics</title>
 
 <style>
   body {
@@ -67,41 +67,88 @@
     flex-grow:1;
     margin:0 1rem;
   }
+
+  .group {
+    margin:1rem 0;
+    padding:1rem;
+    background:#fff;
+    border:1px solid #eee;
+    border-radius:8px;
+  }
+
+  .group h3 {
+    margin:0 0 .5rem 0;
+    font-size:1.05rem;
+  }
+
+  .clinic-actions {
+    display:flex;
+    gap:.5rem;
+    align-items:center;
+  }
+
+  .btn {
+    padding:.35rem .6rem;
+    border-radius:6px;
+    border:none;
+    cursor:pointer;
+  }
+
+  .view {
+    background:#007bff;
+    color:#fff;
+  }
+
+  .small {
+    font-size:.9rem;
+    color:#666;
+    margin-left:.5rem;
+  }
+
+  ul {
+    margin:.5rem 0 0 1rem;
+  }
+
+  li {
+    margin:.25rem 0;
+  }
+
+  .empty {
+    opacity:.6;
+    font-style:italic;
+  }
 </style>
 </head>
 
 <body>
 
-<h1>Generate Attendance Sheets</h1>
+<h1>Saved Clinics</h1>
 
-<form method="post">
-  <input type="text" name="sheet_url" placeholder="Google Sheet URL" required>
-  <button type="submit">Create Sheets</button>
-</form>
-
-<h2 style="text-align:center; margin-top:2rem;">Saved Clinics</h2>
 {% if grouped_clinics %}
   {% for group in grouped_clinics %}
-    <h3>{{ group.day }} — {{ group.clinic }}</h3>
-    <ul>
-      {% for entry in group.entries %}
-        <li>
-          <!-- link by day+clinic (not filename) -->
-          <a href="{{ url_for('results', day=entry.row['Day'], clinic=entry.row['Clinic']) }}">
-            View Results
-          </a>
-          <form action="{{ url_for('delete_sheet_route') }}" method="post" style="display:inline;">
-            <input type="hidden" name="day" value="{{ entry.row['Day'] }}">
-            <input type="hidden" name="clinic" value="{{ entry.row['Clinic'] }}">
-            <input type="hidden" name="time" value="{{ entry.row['Time'] }}">
-            <button type="submit">Delete</button>
-          </form>
-        </li>
-      {% endfor %}
-      {% if not group.entries %}
-        <li style="opacity:.6;">No saved players for this clinic.</li>
+    <div class="group">
+      <h3>{{ group.day }} — {{ group.clinic }}</h3>
+
+      <div class="clinic-actions">
+        <a href="{{ url_for('results', day=group.day, clinic=group.clinic) }}">
+          <button class="btn view">Open</button>
+        </a>
+        <span class="small">{{ group.entries|length }} saved player{{ "s" if group.entries|length != 1 }}</span>
+      </div>
+
+      {% if group.entries %}
+        <ul>
+          {% for entry in group.entries %}
+            <li>
+              {{ entry.row.get('Name','(no name)') }}
+              <span class="small">• {{ entry.row.get('Time','') }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="empty">No saved players for this clinic.</p>
       {% endif %}
-    </ul>
+    </div>
   {% endfor %}
 {% else %}
   <p style="text-align:center; opacity:.6;">No saved clinics yet.</p>
