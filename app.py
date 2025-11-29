@@ -88,6 +88,7 @@ CLINIC_ORDER = [
     {"day": "Tuesday", "clinic": "High Performance Clinic"},
     {"day": "Wednesday", "clinic": "Orange Ball Clinic"},
     {"day": "Wednesday", "clinic": "Green Ball Clinic"},
+    {"day": "Wednesday", "clinic": "Yellow Ball Clinic"},
     {"day": "Thursday", "clinic": "Red Ball Clinic"},
     {"day": "Thursday", "clinic": "Green Ball Clinic"},
     {"day": "Thursday", "clinic": "High Performance Clinic"},
