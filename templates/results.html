@@ -54,7 +54,7 @@
               <input type="hidden" name="row_id" value="{{ row.get('row_id','') }}">
               <input type="hidden" name="delete_flag" value="0">
               <!-- Delete button uses JS to avoid nested forms -->
-              <button type="button" class="btn del" onclick="deleteRow('{{ row.get('row_id','') }}')">Delete</button>
+              <button type="button" class="btn del" data-row-id="{{ row.get('row_id','') }}" onclick="deleteRow(this.dataset.rowId)">Delete</button>
             </td>
           </tr>
         {% endfor %}
@@ -86,10 +86,15 @@
     async function deleteRow(rowId) {
       if (!confirm("Delete this row?")) return;
       try {
+        const dayInput = document.querySelector('input[name="day"]');
+        const clinicInput = document.querySelector('input[name="clinic"]');
+        const day = dayInput ? dayInput.value : '';
+        const clinic = clinicInput ? clinicInput.value : '';
+
         const form = new FormData();
         form.append('row_id', rowId);
-        form.append('day', {{ day|tojson }});
-        form.append('clinic', {{ clinic|tojson }});
+        form.append('day', day);
+        form.append('clinic', clinic);
         const resp = await fetch("{{ url_for('delete_row') }}", {
           method: 'POST',
           body: form,
@@ -101,7 +106,7 @@
           return;
         }
         // reload the results page for this clinic
-        window.location.href = "{{ url_for('results') }}?day=" + encodeURIComponent({{ day|tojson }}) + "&clinic=" + encodeURIComponent({{ clinic|tojson }});
+        window.location.href = "{{ url_for('results') }}?day=" + encodeURIComponent(day) + "&clinic=" + encodeURIComponent(clinic);
       } catch (err) {
         console.error(err);
         alert('Error deleting row (see console).');
