@@ -22,7 +22,6 @@ input[type="text"] { width:100%; border:none; padding:.25rem; box-sizing:border-
 <h1>Attendance — {{ day }} — {{ clinic }}</h1>
 
 <form method="post" action="{{ url_for('save_attendance') }}">
-  <input type="hidden" name="filename" value="{{ filename }}">
   <input type="hidden" name="day" value="{{ day }}">
   <input type="hidden" name="clinic" value="{{ clinic }}">
   <table>
@@ -33,23 +32,18 @@ input[type="text"] { width:100%; border:none; padding:.25rem; box-sizing:border-
         <th>Member Name</th>
         <th>Comments</th>
         <th>Fee</th>
-        {% for col in dynamic_dates %}
-          <th>{{ col }}</th>
-        {% endfor %}
       </tr>
     </thead>
     <tbody>
       {% for row in data %}
         <tr>
-          <td><input type="text" name="player_name" value="{{ row['Name'] }}"></td>
-          <td><input type="text" name="age" value="{{ row['Age'] }}"></td>
-          <td><input type="text" name="parent" value="{{ row['MemberName'] }}"></td>
-          <td><input type="text" name="comments" value="{{ row['Comments'] }}"></td>
-          <td><input type="text" name="fee" value="{{ row['Fee'] }}"></td>
-          {% for col in dynamic_dates %}
-            <td><input type="text" name="date__{{ col }}" value="{{ row.get(col, '') }}"></td>
-          {% endfor %}
-          <input type="hidden" name="row_id" value="{{ row['row_id'] }}">
+          <td><input type="text" name="player_name" value="{{ row.get('Name','') }}"></td>
+          <td><input type="text" name="age" value="{{ row.get('Age','') }}"></td>
+          <td><input type="text" name="parent" value="{{ row.get('MemberName','') }}"></td>
+          <td><input type="text" name="comments" value="{{ row.get('Comments','') }}"></td>
+          <td><input type="text" name="fee" value="{{ row.get('Fee','') }}"></td>
+
+          <input type="hidden" name="row_id" value="{{ row.get('row_id','') }}">
           <input type="hidden" name="delete_flag" value="0">
         </tr>
       {% endfor %}
