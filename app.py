@@ -326,12 +326,19 @@ def save_attendance():
     dynamic_cols = list(dynamic_cols)
 
     # collect dynamic values per submitted row
+    # Only include dynamic columns that were actually submitted in the form.
+    # If a dynamic column is not present in the POST, we must NOT overwrite it with empty strings.
     dynamic_values = {}
+    # number of rows submitted (used to pad lists when needed)
+    n = len(names)
     for col in dynamic_cols:
         key = f"date__{col}"
-        dynamic_values[col] = request.form.getlist(key) if key in request.form else [""] * len(names)
-
-    n = len(names)
+        if key in request.form:
+            vals = request.form.getlist(key)
+            # pad to length n if client sent fewer values
+            if len(vals) < n:
+                vals += [""] * (n - len(vals))
+            dynamic_values[col] = vals
 
     target = get_sheet_for_clinic(day, clinic)
     if target:
