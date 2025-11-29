@@ -86,11 +86,11 @@
     <ul>
       {% for entry in group.entries %}
         <li>
-          <a href="{{ url_for('results', filename=entry.filename) }}">
+          <!-- link by day+clinic (not filename) -->
+          <a href="{{ url_for('results', day=entry.row['Day'], clinic=entry.row['Clinic']) }}">
             View Results
           </a>
           <form action="{{ url_for('delete_sheet_route') }}" method="post" style="display:inline;">
-            <input type="hidden" name="filename" value="{{ entry.filename }}">
             <input type="hidden" name="day" value="{{ entry.row['Day'] }}">
             <input type="hidden" name="clinic" value="{{ entry.row['Clinic'] }}">
             <input type="hidden" name="time" value="{{ entry.row['Time'] }}">

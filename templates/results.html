@@ -22,7 +22,8 @@ input[type="text"] { width:100%; border:none; padding:.25rem; box-sizing:border-
 
 <form method="post" action="{{ url_for('save_attendance') }}">
   <input type="hidden" name="filename" value="{{ filename }}">
-
+  <input type="hidden" name="day" value="{{ day }}">
+  <input type="hidden" name="clinic" value="{{ clinic }}">
   <table>
     <thead>
       <tr>
@@ -31,6 +32,9 @@ input[type="text"] { width:100%; border:none; padding:.25rem; box-sizing:border-
         <th>Member Name</th>
         <th>Comments</th>
         <th>Fee</th>
+        {% for col in dynamic_dates %}
+          <th>{{ col }}</th>
+        {% endfor %}
       </tr>
     </thead>
     <tbody>
@@ -41,6 +45,9 @@ input[type="text"] { width:100%; border:none; padding:.25rem; box-sizing:border-
           <td><input type="text" name="parent" value="{{ row['MemberName'] }}"></td>
           <td><input type="text" name="comments" value="{{ row['Comments'] }}"></td>
           <td><input type="text" name="fee" value="{{ row['Fee'] }}"></td>
+          {% for col in dynamic_dates %}
+            <td><input type="text" name="date__{{ col }}" value="{{ row.get(col, '') }}"></td>
+          {% endfor %}
           <input type="hidden" name="row_id" value="{{ row['row_id'] }}">
           <input type="hidden" name="delete_flag" value="0">
         </tr>
@@ -55,11 +62,15 @@ input[type="text"] { width:100%; border:none; padding:.25rem; box-sizing:border-
 <div style="margin-top:1rem;">
   <form method="post" action="{{ url_for('add_row') }}" style="display:inline;">
     <input type="hidden" name="filename" value="{{ filename }}">
+    <input type="hidden" name="day" value="{{ day }}">
+    <input type="hidden" name="clinic" value="{{ clinic }}">
     <button class="add btn">+ Add Row</button>
   </form>  
 
   <form method="post" action="{{ url_for('add_date_column') }}" style="display:inline; margin-left:1rem;">
     <input type="hidden" name="filename" value="{{ filename }}">
+    <input type="hidden" name="day" value="{{ day }}">
+    <input type="hidden" name="clinic" value="{{ clinic }}">
     <input type="text" name="new_date" placeholder="New date header (e.g. 1/10)" required>
     <button class="add btn">+ Add Date Column</button>
   </form>
