@@ -140,7 +140,8 @@ def get_sheet_by_filename(filename):
 
 def get_sheet_for_clinic(day, clinic):
     """Return the first sheet document that contains rows for the given day+clinic, or None."""
-    return get_db()["sheets"].find_one({"rows.Day": day, "rows.Clinic": clinic})
+    # use $elemMatch for a robust match against array elements
+    return get_db()["sheets"].find_one({"rows": {"$elemMatch": {"Day": day, "Clinic": clinic}}})
 
 def update_sheet_rows(filename, rows):
     get_db()["sheets"].update_one({"filename": filename}, {"$set": {"rows": rows}})
@@ -415,6 +416,9 @@ def add_row():
         flash("Missing clinic information.")
         return redirect(url_for("index"))
 
+    # canonical safe clinic token used in filenames
+    safe_clinic = re.sub(r"\s+", "", clinic)
+
     target = get_sheet_for_clinic(day, clinic)
     if target:
         filename = target["filename"]
@@ -433,21 +437,40 @@ def add_row():
             new_row[col] = ""
         add_row_to_sheet(filename, new_row)
     else:
-        dynamic_columns = []
-        new_row = {
-            "row_id": str(uuid.uuid4()),
-            "Day": day,
-            "Clinic": clinic,
-            "Name": "",
-            "Age": "",
-            "MemberName": "",
-            "Comments": "",
-            "Fee": ""
-        }
-        safe_clinic = re.sub(r"\s+", "", clinic)
-        date_tag = datetime.utcnow().strftime("%Y%m%d")
-        filename = f"{day}_{safe_clinic}_{date_tag}.csv"
-        save_sheet_to_db(filename, [new_row], dynamic_columns)
+        # fallback: try to find an existing sheet whose filename matches the day+safe_clinic prefix
+        fallback = get_db()["sheets"].find_one({"filename": {"$regex": f"^{re.escape(day)}_{re.escape(safe_clinic)}"}})
+        if fallback:
+            filename = fallback["filename"]
+            dynamic_columns = fallback.get("dynamic_columns", [])
+            new_row = {
+                "row_id": str(uuid.uuid4()),
+                "Day": day,
+                "Clinic": clinic,
+                "Name": "",
+                "Age": "",
+                "MemberName": "",
+                "Comments": "",
+                "Fee": ""
+            }
+            for col in dynamic_columns:
+                new_row[col] = ""
+            add_row_to_sheet(filename, new_row)
+        else:
+            # no existing sheet found — create a new sheet doc once
+            dynamic_columns = []
+            new_row = {
+                "row_id": str(uuid.uuid4()),
+                "Day": day,
+                "Clinic": clinic,
+                "Name": "",
+                "Age": "",
+                "MemberName": "",
+                "Comments": "",
+                "Fee": ""
+            }
+            date_tag = datetime.utcnow().strftime("%Y%m%d")
+            filename = f"{day}_{safe_clinic}_{date_tag}.csv"
+            save_sheet_to_db(filename, [new_row], dynamic_columns)
 
     flash("Row added.")
     return redirect(url_for("results", day=day, clinic=clinic))

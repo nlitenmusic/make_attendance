@@ -53,13 +53,8 @@
             <td class="row-actions">
               <input type="hidden" name="row_id" value="{{ row.get('row_id','') }}">
               <input type="hidden" name="delete_flag" value="0">
-              <!-- Delete single row form -->
-              <form method="post" action="{{ url_for('delete_row') }}" class="inline">
-                <input type="hidden" name="row_id" value="{{ row.get('row_id','') }}">
-                <input type="hidden" name="day" value="{{ day }}">
-                <input type="hidden" name="clinic" value="{{ clinic }}">
-                <button type="submit" class="btn del">Delete</button>
-              </form>
+              <!-- Delete button uses JS to avoid nested forms -->
+              <button type="button" class="btn del" onclick="deleteRow('{{ row.get('row_id','') }}')">Delete</button>
             </td>
           </tr>
         {% endfor %}
@@ -86,5 +81,32 @@
       <button class="btn" type="submit">+ Add Date Column</button>
     </form>
   </div>
+
+  <script>
+    async function deleteRow(rowId) {
+      if (!confirm("Delete this row?")) return;
+      try {
+        const form = new FormData();
+        form.append('row_id', rowId);
+        form.append('day', {{ day|tojson }});
+        form.append('clinic', {{ clinic|tojson }});
+        const resp = await fetch("{{ url_for('delete_row') }}", {
+          method: 'POST',
+          body: form,
+          credentials: 'same-origin'
+        });
+        if (!resp.ok) {
+          console.error('delete_row failed', resp.status, await resp.text());
+          alert('Failed to delete row (see console).');
+          return;
+        }
+        // reload the results page for this clinic
+        window.location.href = "{{ url_for('results') }}?day=" + encodeURIComponent({{ day|tojson }}) + "&clinic=" + encodeURIComponent({{ clinic|tojson }});
+      } catch (err) {
+        console.error(err);
+        alert('Error deleting row (see console).');
+      }
+    }
+  </script>
 </body>
 </html>
