@@ -231,28 +231,41 @@ def index():
     # Fetch full documents (including rows)
     sheets = list(get_db()["sheets"].find().sort("created_at", -1))
 
-    # Group by (day, clinic) following CLINIC_ORDER and deduplicate entries
+    # Group by (day, clinic) following CLINIC_ORDER and deduplicate entries.
+    # Include blank rows that live in the same sheet document as matching rows
     grouped = []
     for cfg in CLINIC_ORDER:
         items = []
         seen = set()  # dedupe by row_id to avoid counting the same player multiple times
         for sheet in sheets:
             filename = sheet.get("filename")
-            for row in sheet.get("rows", []):
-                # normalize stored values (trim + casefold) to be robust to whitespace/casing
-                row_day = (row.get("Day") or "").strip()
-                row_clinic = (row.get("Clinic") or "").strip()
-                if row_day.casefold() == cfg["day"].casefold() and row_clinic.casefold() == cfg["clinic"].casefold():
-                    # dedupe by unique row_id (fall back to filename+index if missing)
-                    rid = row.get("row_id") or f"{filename}:{len(items)}"
+            rows = sheet.get("rows", []) or []
+
+            # If this sheet contains at least one row for this Day+Clinic, include both
+            # the explicit matches and any blank rows in the same sheet (newly added rows).
+            sheet_has_match = any(
+                ((r.get("Day") or "").strip().casefold() == cfg["day"].casefold() and
+                 (r.get("Clinic") or "").strip().casefold() == cfg["clinic"].casefold())
+                for r in rows
+            )
+            if not sheet_has_match:
+                continue
+
+            for idx, r in enumerate(rows):
+                row_day = (r.get("Day") or "").strip()
+                row_clinic = (r.get("Clinic") or "").strip()
+                if (row_day.casefold() == cfg["day"].casefold() and row_clinic.casefold() == cfg["clinic"].casefold()) \
+                   or (not row_day and not row_clinic):
+                    rid = r.get("row_id") or f"{filename}:{idx}"
                     key = (rid, filename)
                     if key in seen:
                         continue
                     seen.add(key)
                     items.append({
                         "filename": filename,
-                        "row": row
+                        "row": r
                     })
+
         grouped.append({
             "day": cfg["day"],
             "clinic": cfg["clinic"],
