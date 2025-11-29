@@ -235,48 +235,67 @@ def index():
     # Fetch full documents (including rows)
     sheets = list(get_db()["sheets"].find().sort("created_at", -1))
 
-    # Group by (day, clinic) following CLINIC_ORDER and deduplicate entries.
-    # Include blank rows that live in the same sheet document as matching rows
-    grouped = []
-    for cfg in CLINIC_ORDER:
-        items = []
-        seen = set()  # dedupe by row_id to avoid counting the same player multiple times
-        for sheet in sheets:
-            filename = sheet.get("filename")
-            rows = sheet.get("rows", []) or []
+    # Build grouped_sessions: session -> ordered clinics -> entries
+    sessions = []
+    seen_sessions = set()
+    for s in sheets:
+        sess = (s.get("session") or "Default Session")
+        if sess not in seen_sessions:
+            seen_sessions.add(sess)
+            sessions.append(sess)
 
-            # If this sheet contains at least one row for this Day+Clinic, include both
-            # the explicit matches and any blank rows in the same sheet (newly added rows).
-            sheet_has_match = any(
-                ((r.get("Day") or "").strip().casefold() == cfg["day"].casefold() and
-                 (r.get("Clinic") or "").strip().casefold() == cfg["clinic"].casefold())
-                for r in rows
-            )
-            if not sheet_has_match:
-                continue
+    # prefer configured SESSION_NAME first
+    def session_sort_key(s):
+        return (0 if s == SESSION_NAME else 1, s.lower())
 
-            for idx, r in enumerate(rows):
-                row_day = (r.get("Day") or "").strip()
-                row_clinic = (r.get("Clinic") or "").strip()
-                if (row_day.casefold() == cfg["day"].casefold() and row_clinic.casefold() == cfg["clinic"].casefold()) \
-                   or (not row_day and not row_clinic):
-                    rid = r.get("row_id") or f"{filename}:{idx}"
-                    key = (rid, filename)
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    items.append({
-                        "filename": filename,
-                        "row": r
-                    })
+    sessions_sorted = sorted(sessions, key=session_sort_key)
 
-        grouped.append({
-            "day": cfg["day"],
-            "clinic": cfg["clinic"],
-            "entries": items
-        })
+    grouped_sessions = []
+    for sess in sessions_sorted:
+        clinics_out = []
+        for cfg in CLINIC_ORDER:
+            items = []
+            seen = set()
+            for sheet in sheets:
+                if (sheet.get("session") or "Default Session") != sess:
+                    continue
+                filename = sheet.get("filename")
+                rows = sheet.get("rows", []) or []
 
-    return render_template("index.html", grouped_clinics=grouped, pretty_filename=pretty_filename)
+                sheet_has_match = any(
+                    ((r.get("Day") or "").strip().casefold() == cfg["day"].casefold() and
+                     (r.get("Clinic") or "").strip().casefold() == cfg["clinic"].casefold())
+                    for r in rows
+                )
+                if not sheet_has_match:
+                    continue
+
+                for idx, r in enumerate(rows):
+                    row_day = (r.get("Day") or "").strip()
+                    row_clinic = (r.get("Clinic") or "").strip()
+                    if (row_day.casefold() == cfg["day"].casefold() and row_clinic.casefold() == cfg["clinic"].casefold()) \
+                       or (not row_day and not row_clinic):
+                        rid = r.get("row_id") or f"{filename}:{idx}"
+                        key = (rid, filename)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        items.append({"filename": filename, "row": r})
+
+            if items:
+                clinics_out.append({"day": cfg["day"], "clinic": cfg["clinic"], "entries": items})
+
+        if clinics_out:
+            grouped_sessions.append({"session": sess, "clinics": clinics_out})
+
+    # Backwards-compatible flat list (older templates may still expect grouped_clinics)
+    grouped_clinics = []
+    for gs in grouped_sessions:
+        for c in gs["clinics"]:
+            grouped_clinics.append(c)
+
+    # render using grouped_sessions; grouped_clinics remains for compatibility
+    return render_template("index.html", grouped_clinics=grouped_clinics, grouped_sessions=grouped_sessions, pretty_filename=pretty_filename)
 
 @app.route("/results", methods=["GET"])
 def results():

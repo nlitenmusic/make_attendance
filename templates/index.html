@@ -149,5 +149,16 @@
   <p style="text-align:center; opacity:.6;">No saved clinics yet.</p>
 {% endif %}
 
+{% for sess in grouped_sessions %}
+  <h2>{{ sess.session }}</h2>
+  {% for clinic in sess.clinics %}
+    <div class="clinic">
+      <h3>{{ clinic.day }} — {{ clinic.clinic }}</h3>
+      <p>{{ clinic.entries|length }} saved players</p>
+      <a href="{{ url_for('results', day=clinic.day, clinic=clinic.clinic) }}">Open</a>
+    </div>
+  {% endfor %}
+{% endfor %}
+
 </body>
 </html>
