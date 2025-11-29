@@ -323,18 +323,17 @@ def save_attendance():
         existing_dyn = set(target.get("dynamic_columns", []))
         merged_dyn = sorted(existing_dyn.union(dynamic_cols))
         if merged_dyn != sorted(existing_dyn):
-            # update dynamic_columns on doc (rows will be updated below)
             get_db()["sheets"].update_one({"filename": filename}, {"$set": {"dynamic_columns": merged_dyn}})
 
         for i in range(n):
-            # handle deletion
             rid = row_ids[i] if i < len(row_ids) else None
+            # deletion via delete_flag
             if rid and i < len(delete_flags) and delete_flags[i] == "1":
                 get_db()["sheets"].update_one({"filename": filename}, {"$pull": {"rows": {"row_id": rid}}})
                 continue
 
-            # build the field update for this row
             if rid:
+                # prepare update fields for the element with matching row_id
                 update_fields = {}
                 update_fields["rows.$[elem].Name"] = names[i] if i < len(names) else ""
                 update_fields["rows.$[elem].Age"] = ages[i] if i < len(ages) else ""
@@ -343,7 +342,6 @@ def save_attendance():
                 update_fields["rows.$[elem].Fee"] = fees[i] if i < len(fees) else ""
                 for col, vals in dynamic_values.items():
                     update_fields[f"rows.$[elem].{col}"] = vals[i] if i < len(vals) else ""
-                # if row_id exists in this doc, update in-place; otherwise treat as new row
                 contains = get_db()["sheets"].count_documents({"filename": filename, "rows.row_id": rid}) > 0
                 if contains:
                     get_db()["sheets"].update_one(
@@ -352,7 +350,6 @@ def save_attendance():
                         array_filters=[{"elem.row_id": rid}]
                     )
                 else:
-                    # push as new row (preserve Day/Clinic)
                     new_row = {
                         "row_id": rid,
                         "Day": day,
@@ -367,7 +364,7 @@ def save_attendance():
                         new_row[col] = vals[i] if i < len(vals) else ""
                     get_db()["sheets"].update_one({"filename": filename}, {"$push": {"rows": new_row}})
             else:
-                # row_id missing -> create new row and push
+                # create new row and push
                 new_row = {
                     "row_id": str(uuid.uuid4()),
                     "Day": day,
@@ -382,7 +379,7 @@ def save_attendance():
                     new_row[col] = vals[i] if i < len(vals) else ""
                 get_db()["sheets"].update_one({"filename": filename}, {"$push": {"rows": new_row}})
     else:
-        # no sheet exists for this clinic/day — create a new sheet doc (one-time)
+        # create a new sheet doc for this clinic/day
         new_rows = []
         for i in range(n):
             if i < len(delete_flags) and delete_flags[i] == "1":
@@ -412,7 +409,6 @@ def save_attendance():
 
 @app.route("/add_row", methods=["POST"])
 def add_row():
-    # now uses day+clinic (not filename)
     day = request.form.get("day")
     clinic = request.form.get("clinic")
     if not day or not clinic:
@@ -437,7 +433,6 @@ def add_row():
             new_row[col] = ""
         add_row_to_sheet(filename, new_row)
     else:
-        # create a new sheet doc with a single empty row
         dynamic_columns = []
         new_row = {
             "row_id": str(uuid.uuid4()),
@@ -460,7 +455,6 @@ def add_row():
 
 @app.route("/add_date_column", methods=["POST"])
 def add_date_column():
-    # accept day+clinic instead of filename
     day = request.form.get("day")
     clinic = request.form.get("clinic")
     new_col = request.form.get("new_date", "").strip()
@@ -496,10 +490,8 @@ def delete_row():
     if not row_id:
         flash("Missing row_id.")
         return redirect(url_for("index"))
-    # remove row from all sheet documents that contain it
     get_db()["sheets"].update_many({}, {"$pull": {"rows": {"row_id": row_id}}})
     flash("Row deleted.")
-    # prefer redirect back to the clinic view if provided
     if day and clinic:
         return redirect(url_for("results", day=day, clinic=clinic))
     return redirect(url_for("index"))

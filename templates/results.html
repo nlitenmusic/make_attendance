@@ -71,6 +71,7 @@
     </div>
   </form>
 
+  <!-- Add-row form must be OUTSIDE the save_attendance form (no nested forms) -->
   <div style="margin-top:1rem; display:flex; gap:.5rem; align-items:center;">
     <form method="post" action="{{ url_for('add_row') }}">
       <input type="hidden" name="day" value="{{ day }}">
@@ -79,5 +80,11 @@
     </form>
 
     <form method="post" action="{{ url_for('add_date_column') }}" style="display:inline;">
+      <input type="hidden" name="day" value="{{ day }}">
+      <input type="hidden" name="clinic" value="{{ clinic }}">
+      <input type="text" name="new_date" placeholder="New date header (e.g. 1/10)" required>
+      <button class="btn" type="submit">+ Add Date Column</button>
+    </form>
+  </div>
 </body>
 </html>

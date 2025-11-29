@@ -67,6 +67,45 @@
     flex-grow:1;
     margin:0 1rem;
   }
+
+  .group {
+    margin-bottom: 2rem;
+    padding: 1rem;
+    background: #fff;
+    border-radius: 5px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  .clinic-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+
+  .btn.view {
+    padding: 0.5rem 1rem;
+    font-size: 1rem;
+    border: none;
+    border-radius: 5px;
+    background: #0066cc;
+    color: white;
+    cursor: pointer;
+  }
+
+  .btn.view:hover {
+    background: #0052a3;
+  }
+
+  .small {
+    font-size: 0.875rem;
+    color: #666;
+  }
+
+  .empty {
+    opacity: 0.6;
+    font-style: italic;
+  }
 </style>
 </head>
 
@@ -82,26 +121,29 @@
 <h2 style="text-align:center; margin-top:2rem;">Saved Clinics</h2>
 {% if grouped_clinics %}
   {% for group in grouped_clinics %}
-    <h3>{{ group.day }} — {{ group.clinic }}</h3>
-    <ul>
-      {% for entry in group.entries %}
-        <li>
-          <!-- link by day+clinic (not filename) -->
-          <a href="{{ url_for('results', day=entry.row['Day'], clinic=entry.row['Clinic']) }}">
-            View Results
-          </a>
-          <form action="{{ url_for('delete_sheet_route') }}" method="post" style="display:inline;">
-            <input type="hidden" name="day" value="{{ entry.row['Day'] }}">
-            <input type="hidden" name="clinic" value="{{ entry.row['Clinic'] }}">
-            <input type="hidden" name="time" value="{{ entry.row['Time'] }}">
-            <button type="submit">Delete</button>
-          </form>
-        </li>
-      {% endfor %}
-      {% if not group.entries %}
-        <li style="opacity:.6;">No saved players for this clinic.</li>
+    <div class="group">
+      <h3>{{ group.day }} — {{ group.clinic }}</h3>
+
+      <div class="clinic-actions">
+        <a href="{{ url_for('results', day=group.day, clinic=group.clinic) }}">
+          <button class="btn view">Open</button>
+        </a>
+        <span class="small">{{ group.entries|length }} saved player{{ "s" if group.entries|length != 1 }}</span>
+      </div>
+
+      {% if group.entries %}
+        <ul>
+          {% for entry in group.entries %}
+            <li>
+              {{ entry.row.get('Name','(no name)') }}
+              <span class="small">• {{ entry.row.get('Time','') }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="empty">No saved players for this clinic.</p>
       {% endif %}
-    </ul>
+    </div>
   {% endfor %}
 {% else %}
   <p style="text-align:center; opacity:.6;">No saved clinics yet.</p>
