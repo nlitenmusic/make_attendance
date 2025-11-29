@@ -257,25 +257,40 @@ def index():
 
 @app.route("/results", methods=["GET"])
 def results():
-    # Show rows for a specific Day + Clinic (not by filename)
     day = request.args.get("day")
     clinic = request.args.get("clinic")
     if not day or not clinic:
         flash("Missing clinic information.")
         return redirect(url_for("index"))
 
-    # Aggregate matching rows across all sheets
-    sheets = list(get_db()["sheets"].find().sort("created_at", -1))
+    # Prefer the single sheet doc that contains this Day+Clinic so we always render the same doc
+    sheet = get_sheet_for_clinic(day, clinic)
     matched_rows = []
-    dynamic_dates_set = set()
-    for sheet in sheets:
-        for row in sheet.get("rows", []):
-            if row.get("Day") == day and row.get("Clinic") == clinic:
-                matched_rows.append(row)
-        for c in sheet.get("dynamic_columns", []):
-            dynamic_dates_set.add(c)
+    dynamic_dates = []
 
-    dynamic_dates = sorted(dynamic_dates_set)
+    if sheet:
+        filename = sheet.get("filename")
+        app.logger.info("results: using sheet filename=%s", filename)
+        rows = sheet.get("rows", [])
+        # Include rows that match Day+Clinic OR blank rows in the same sheet (newly added rows)
+        matched_rows = [
+            r for r in rows
+            if (r.get("Day") == day and r.get("Clinic") == clinic) or (not r.get("Day") and not r.get("Clinic"))
+        ]
+        dynamic_dates = sorted(sheet.get("dynamic_columns", []))
+    else:
+        # fallback: aggregate across all sheets (existing behavior)
+        sheets = list(get_db()["sheets"].find().sort("created_at", -1))
+        dynamic_dates_set = set()
+        for s in sheets:
+            for r in s.get("rows", []):
+                if r.get("Day") == day and r.get("Clinic") == clinic:
+                    matched_rows.append(r)
+            for c in s.get("dynamic_columns", []):
+                dynamic_dates_set.add(c)
+        dynamic_dates = sorted(dynamic_dates_set)
+
+    app.logger.info("results: matched_rows count=%s ids=%s", len(matched_rows), [r.get("row_id") for r in matched_rows])
     return render_template(
         "results.html",
         data=matched_rows,
