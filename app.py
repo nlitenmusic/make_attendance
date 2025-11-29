@@ -589,21 +589,6 @@ def export_all():
         }
     )
 
-# Temporary admin migration endpoint — remove after use
-ADMIN_MIGRATE_TOKEN = os.getenv("ADMIN_MIGRATE_TOKEN")  # set this in your app env before calling
-
-@app.route("/_admin/migrate_session", methods=["POST"])
-def admin_migrate_session():
-    token = request.headers.get("X-ADMIN-TOKEN")
-    if not ADMIN_MIGRATE_TOKEN or token != ADMIN_MIGRATE_TOKEN:
-        return abort(403)
-    session_name = os.getenv("SESSION_NAME", "Fall 2025")
-    res = get_db()["sheets"].update_many(
-        {"session": {"$exists": False}},
-        {"$set": {"session": session_name}}
-    )
-    return jsonify({"matched": res.matched_count, "modified": res.modified_count})
-
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
