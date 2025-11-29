@@ -113,9 +113,10 @@
 
 <h1>Generate Attendance Sheets</h1>
 
-<form method="post">
+<form method="post" action="{{ url_for('index') }}" class="upload-form">
   <input type="text" name="sheet_url" placeholder="Google Sheet URL" required>
-  <button type="submit">Create Sheets</button>
+  <input type="text" name="session" placeholder="Session (e.g. Fall II 2025)" style="min-width:220px;">
+  <button class="btn" type="submit">Import Google Sheet</button>
 </form>
 
 <h2 style="text-align:center; margin-top:2rem;">Saved Clinics</h2>

@@ -211,11 +211,19 @@ def index():
                 date_tag = datetime.utcnow().strftime("%Y%m%d")
                 filename = f"{day}_{safe_clinic}_{date_tag}.csv"
 
+                # determine session: prefer explicit form value, otherwise keep any existing doc session, else default
+                form_session = request.form.get("session", "").strip()
+                if form_session:
+                    session_to_use = form_session
+                else:
+                    existing_doc = get_db()["sheets"].find_one({"rows.Day": day, "rows.Clinic": clinic})
+                    session_to_use = (existing_doc.get("session") if existing_doc and existing_doc.get("session") else SESSION_NAME)
+
                 doc = {
                     "filename": filename,
                     "rows": group_rows,
                     "dynamic_columns": dynamic_columns,
-                    "session": SESSION_NAME,
+                    "session": session_to_use,
                     "created_at": datetime.utcnow()
                 }
 
