@@ -82,36 +82,103 @@
     </form>
   </div>
 
-  <script>
-    async function deleteRow(rowId) {
-      if (!confirm("Delete this row?")) return;
-      try {
-        const dayInput = document.querySelector('input[name="day"]');
-        const clinicInput = document.querySelector('input[name="clinic"]');
-        const day = dayInput ? dayInput.value : '';
-        const clinic = clinicInput ? clinicInput.value : '';
+  <!-- in-page confirm modal (hidden by default) -->
+  <div id="confirm-modal" style="display:none; position:fixed; inset:0; align-items:center; justify-content:center; background:rgba(0,0,0,0.35); z-index:9999;">
+    <div style="background:white; padding:1rem 1.25rem; border-radius:8px; width:360px; box-shadow:0 6px 30px rgba(0,0,0,0.2);">
+      <h3 style="margin:0 0 .5rem 0;">Confirm delete</h3>
+      <p id="confirm-msg" style="margin:0 0 .75rem 0;">Delete this row?</p>
+      <label style="display:flex; align-items:center; gap:.5rem; margin-bottom:.75rem;">
+        <input id="confirm-dont-ask" type="checkbox"> Don't ask again
+      </label>
+      <div style="display:flex; gap:.5rem; justify-content:flex-end;">
+        <button id="confirm-cancel" class="btn back" type="button">Cancel</button>
+        <button id="confirm-ok" class="btn del" type="button">Delete</button>
+      </div>
+    </div>
+  </div>
 
-        const form = new FormData();
-        form.append('row_id', rowId);
-        form.append('day', day);
-        form.append('clinic', clinic);
-        const resp = await fetch("{{ url_for('delete_row') }}", {
-          method: 'POST',
-          body: form,
-          credentials: 'same-origin'
-        });
-        if (!resp.ok) {
-          console.error('delete_row failed', resp.status, await resp.text());
-          alert('Failed to delete row (see console).');
-          return;
-        }
-        // reload the results page for this clinic
-        window.location.href = "{{ url_for('results') }}?day=" + encodeURIComponent(day) + "&clinic=" + encodeURIComponent(clinic);
-      } catch (err) {
-        console.error(err);
-        alert('Error deleting row (see console).');
+  <!-- small control to reset stored confirmation preference -->
+  <div style="margin-top:.5rem;">
+    <button id="reset-delete-confirm" class="btn" type="button" style="background:#eee; color:#111; padding:.25rem .5rem;">Reset delete confirmation</button>
+  </div>
+
+  <script>
+    // show modal-based confirmation; remembers "don't ask again" in localStorage
+    (function () {
+      const modal = document.getElementById('confirm-modal');
+      const okBtn = document.getElementById('confirm-ok');
+      const cancelBtn = document.getElementById('confirm-cancel');
+      const dontAskCb = document.getElementById('confirm-dont-ask');
+      let pendingRowId = null;
+
+      function openModalFor(rowId) {
+        pendingRowId = rowId;
+        dontAskCb.checked = !!localStorage.getItem('suppressDeleteConfirm'); // reflect pref
+        modal.style.display = 'flex';
       }
-    }
+
+      function closeModal() {
+        pendingRowId = null;
+        modal.style.display = 'none';
+      }
+
+      // main entry: called from buttons in the table
+      window.deleteRow = async function (rowId) {
+        // if user previously chose "don't ask again", skip modal
+        if (localStorage.getItem('suppressDeleteConfirm')) {
+          return performDelete(rowId);
+        }
+        openModalFor(rowId);
+      };
+
+      okBtn.addEventListener('click', function () {
+        if (dontAskCb.checked) {
+          localStorage.setItem('suppressDeleteConfirm', '1');
+        }
+        if (pendingRowId) {
+          performDelete(pendingRowId);
+        }
+        closeModal();
+      });
+
+      cancelBtn.addEventListener('click', function () {
+        closeModal();
+      });
+
+      document.getElementById('reset-delete-confirm').addEventListener('click', function () {
+        localStorage.removeItem('suppressDeleteConfirm');
+        alert('Delete confirmation reset. You will be asked before deleting rows.');
+      });
+
+      async function performDelete(rowId) {
+        try {
+          const dayInput = document.querySelector('input[name="day"]');
+          const clinicInput = document.querySelector('input[name="clinic"]');
+          const day = dayInput ? dayInput.value : '';
+          const clinic = clinicInput ? clinicInput.value : '';
+
+          const form = new FormData();
+          form.append('row_id', rowId);
+          form.append('day', day);
+          form.append('clinic', clinic);
+          const resp = await fetch("{{ url_for('delete_row') }}", {
+            method: 'POST',
+            body: form,
+            credentials: 'same-origin'
+          });
+          if (!resp.ok) {
+            console.error('delete_row failed', resp.status, await resp.text());
+            alert('Failed to delete row (see console).');
+            return;
+          }
+          // reload results page to show updated rows
+          window.location.href = "{{ url_for('results') }}?day=" + encodeURIComponent(day) + "&clinic=" + encodeURIComponent(clinic);
+        } catch (err) {
+          console.error(err);
+          alert('Error deleting row (see console).');
+        }
+      }
+    }());
   </script>
 </body>
 </html>
