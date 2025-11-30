@@ -616,44 +616,6 @@ def export_all():
         }
     )
 
-def _slug_session(s: str) -> str:
-    s = (s or "default").strip()
-    s = s.lower()
-    s = re.sub(r"[^0-9a-z]+", "_", s)
-    s = re.sub(r"_+", "_", s).strip("_")
-    return s or "default"
-
-@app.route("/drop_legacy_sheets", methods=["POST"])
-def drop_legacy_sheets():
-    # destructive: drop the old combined 'sheets' collection
-    get_db().drop_collection("sheets")
-    flash("Dropped legacy 'sheets' collection.")
-    return redirect(url_for("index"))
-
-@app.route("/drop_session_collections", methods=["POST"])
-def drop_session_collections():
-    # destructive: drop all collections named sheets__*
-    names = [n for n in get_db().list_collection_names() if n.startswith("sheets__")]
-    for n in names:
-        get_db().drop_collection(n)
-    flash(f"Dropped {len(names)} session collection(s).")
-    return redirect(url_for("index"))
-
-@app.route("/drop_session", methods=["POST"])
-def drop_session():
-    # destructive: drop a single session collection by session name
-    session = (request.form.get("session") or "").strip()
-    if not session:
-        flash("Missing session name.")
-        return redirect(url_for("index"))
-    cname = f"sheets__{_slug_session(session)}"
-    if cname in get_db().list_collection_names():
-        get_db().drop_collection(cname)
-        flash(f"Dropped collection {cname}.")
-    else:
-        flash(f"No collection named {cname} found.")
-    return redirect(url_for("index"))
-
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)

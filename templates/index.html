@@ -119,53 +119,21 @@
   <button class="btn" type="submit">Import Google Sheet</button>
 </form>
 
-<div style="margin:1rem 0; display:flex; gap:8px; flex-wrap:wrap;">
-  <form method="post" action="{{ url_for('drop_legacy_sheets') }}" onsubmit="return confirm('Drop legacy &quot;sheets&quot; collection? This is irreversible.');" style="margin:0;">
-    <button class="btn danger" type="submit">Drop legacy sheets</button>
-  </form>
-
-  <form method="post" action="{{ url_for('drop_session_collections') }}" onsubmit='return confirm("Drop all session collections (sheets__*)? This is irreversible.");' style="margin:0;">
-    <button class="btn danger" type="submit">Drop all session collections</button>
-  </form>
-
-  <form method="post" action="{{ url_for('drop_session') }}" onsubmit="return confirm('Drop the specific session collection?');" style="display:flex; gap:6px; margin:0; align-items:center;">
-    <input type="text" name="session" placeholder="Session name (exact)" style="min-width:180px;">
-    <button class="btn danger" type="submit">Drop session</button>
-  </form>
-</div>
-
 <h2 style="text-align:center; margin-top:2rem;">Saved Clinics</h2>
 
 {% if grouped_sessions %}
   {% for sess in grouped_sessions %}
     <div class="session">
-      <div style="display:flex;align-items:center;justify-content:space-between;">
-        <h2 style="margin-top:1rem; margin-bottom:.5rem;">{{ sess.session }}</h2>
-
-        <form method="post" action="{{ url_for('drop_session') }}" onsubmit="return confirm('Drop the entire session {{ sess.session }}? This is irreversible.');" style="margin:0;">
-          <input type="hidden" name="session" value="{{ sess.session }}">
-          <button class="btn danger" type="submit">Delete session</button>
-        </form>
-      </div>
+      <h2 style="margin-top:1rem; margin-bottom:.5rem;">{{ sess.session }}</h2>
 
       {% for group in sess.clinics %}
         <div class="group">
           <h3>{{ group.day }} — {{ group.clinic }}</h3>
 
-          <div class="clinic-actions" style="display:flex;gap:8px;align-items:center;">
+          <div class="clinic-actions">
             <a href="{{ url_for('results', day=group.day, clinic=group.clinic) }}">
               <button class="btn view">Open</button>
             </a>
-
-            <form method="post" action="{{ url_for('delete_clinic_group') }}"
-                  onsubmit="return confirm('Delete all saved sheets for {{ group.day }} — {{ group.clinic }} in {{ sess.session }}?');"
-                  style="margin:0;">
-              <input type="hidden" name="day" value="{{ group.day }}">
-              <input type="hidden" name="clinic" value="{{ group.clinic }}">
-              <input type="hidden" name="session" value="{{ sess.session }}">
-              <button class="btn danger small" type="submit">Delete clinic</button>
-            </form>
-
             <span class="small">{{ group.entries|length }} saved player{{ "s" if group.entries|length != 1 }}</span>
           </div>
 
