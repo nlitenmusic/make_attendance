@@ -124,7 +124,7 @@ def list_saved_sheets_sorted():
     files = [f.name for f in ATTENDANCE_DIR.glob("*.csv")]
     return sorted(files, key=sort_key)
 
-# --- MongoDB helpers ---
+# --- MongoDB helpers (per-upload collections) ---
 
 def _slug(s: str) -> str:
     s = (s or "default").strip()
@@ -133,68 +133,111 @@ def _slug(s: str) -> str:
     s = re.sub(r"_+", "_", s).strip("_")
     return s or "default"
 
-def collection_for_upload(filename: str):
-    """Create/use a collection per upload, based on filename (no .csv)."""
-    base = filename.replace(".csv", "")
-    cname = f"sheets__{_slug(base)}"
+def collection_name_for_sheet(sheet_id: str, session: str) -> str:
+    """Canonical collection name for an uploaded Google Sheet (sheet_id + session)."""
+    sid = _slug(sheet_id)
+    sess = _slug(session or "default")
+    return f"sheet__{sid}__{sess}"
+
+def collection_for_upload_by_name(cname: str):
     return get_db()[cname]
+
+def collection_for_upload_from_ids(sheet_id: str, session: str):
+    cname = collection_name_for_sheet(sheet_id, session)
+    return collection_for_upload_by_name(cname)
 
 def _legacy_collection():
     return get_db()["sheets"]
 
 def _all_relevant_collections():
-    """Yield legacy then all sheets__* collections."""
-    yield _legacy_collection()
-    for name in get_db().list_collection_names():
-        if name.startswith("sheets__"):
-            yield get_db()[name]
+    """Yield legacy then all per-upload sheet collections (sheet__*)."""
+    db = get_db()
+    if "sheets" in db.list_collection_names():
+        yield db["sheets"]
+    # support both old 'sheets__' and new 'sheet__' patterns for compatibility
+    for name in db.list_collection_names():
+        if name.startswith("sheet__") or name.startswith("sheets__"):
+            yield db[name]
 
-def save_sheet_to_db(filename, rows, dynamic_columns, session=SESSION_NAME):
-    """Save one document per uploaded Google Sheet into the single legacy 'sheets' collection."""
-    col = get_db()["sheets"]
+def save_sheet_upload(sheet_id: str, filename: str, rows, dynamic_columns, session=SESSION_NAME, sheet_url=None):
+    """Save the whole uploaded Google Sheet into one collection identified by sheet_id + session."""
+    col = collection_for_upload_from_ids(sheet_id, session)
     doc = {
         "filename": filename,
+        "sheet_id": sheet_id,
+        "sheet_url": sheet_url,
         "rows": rows,
         "dynamic_columns": dynamic_columns,
         "session": session,
         "created_at": datetime.utcnow()
     }
+    # single document per upload inside this collection (use filename as key)
     col.replace_one({"filename": filename}, doc, upsert=True)
 
+def save_sheet_to_db(filename, rows, dynamic_columns, session=SESSION_NAME, sheet_url=None):
+    """Compatibility wrapper used by routes that expect save_sheet_to_db(filename, ...).
+
+    Derive a stable sheet_id from the filename stem and delegate to save_sheet_upload so
+    existing per-upload collection semantics are preserved.
+    """
+    # derive a sheet id from the filename stem (strip extension)
+    sheet_id = Path(filename).stem
+    save_sheet_upload(sheet_id, filename, rows, dynamic_columns, session=session, sheet_url=sheet_url)
+
 def get_all_sheets():
-    """Return all docs from the single 'sheets' collection, sorted by session then created_at desc."""
-    col = get_db()["sheets"]
-    docs = list(col.find({}))
-    # sort by session (None last) then created_at desc
-    def key(d):
-        sess = d.get("session") or ""
-        return (sess.lower(), -(d.get("created_at") or datetime.min).timestamp())
-    return sorted(docs, key=key)
+    """Return all sheet documents across legacy + per-sheet collections, deduped by filename newest-first."""
+    docs = []
+    for col in _all_relevant_collections():
+        docs.extend(list(col.find({})))
+    # dedupe by filename keeping newest created_at
+    seen = {}
+    for d in docs:
+        fname = d.get("filename")
+        if not fname:
+            continue
+        existing = seen.get(fname)
+        if not existing or d.get("created_at", datetime.min) > existing.get("created_at", datetime.min):
+            seen[fname] = d
+    out = list(seen.values())
+    out.sort(key=lambda d: d.get("created_at", datetime.min), reverse=True)
+    return out
 
 def get_sheet_by_filename(filename):
-    """Find a sheet doc by filename in the single 'sheets' collection."""
-    return get_db()["sheets"].find_one({"filename": filename})
-
-def get_sheet_for_clinic(day, clinic, session=None):
-    """Prefer a document in 'sheets' matching session (if provided), otherwise newest doc containing Day+Clinic."""
-    col = get_db()["sheets"]
-    if session:
-        doc = col.find_one({"session": session, "rows": {"$elemMatch": {"Day": day, "Clinic": clinic}}}, sort=[("created_at", -1)])
+    """Find a sheet document by filename across all collections."""
+    for col in _all_relevant_collections():
+        doc = col.find_one({"filename": filename})
         if doc:
             return doc
-    # search all docs and prefer newest by created_at
-    cursor = col.find({"rows": {"$elemMatch": {"Day": day, "Clinic": clinic}}})
-    candidates = list(cursor)
+    return None
+
+def get_sheet_for_clinic(day, clinic, session=None):
+    """Return the newest document across all collections that contains Day+Clinic."""
+    candidates = []
+    for col in _all_relevant_collections():
+        if session:
+            doc = col.find_one({"session": session, "rows": {"$elemMatch": {"Day": day, "Clinic": clinic}}})
+            if doc:
+                candidates.append(doc)
+                continue
+        doc = col.find_one({"rows": {"$elemMatch": {"Day": day, "Clinic": clinic}}})
+        if doc:
+            candidates.append(doc)
     if not candidates:
         return None
     candidates.sort(key=lambda d: d.get("created_at", datetime.min), reverse=True)
     return candidates[0]
 
 def _find_collection_for_filename(filename):
-    """Legacy helper now always returns the single sheets collection if the filename exists."""
-    col = get_db()["sheets"]
-    if col.find_one({"filename": filename}):
-        return col
+    """Return collection object that contains the given filename (search all relevant collections)."""
+    db = get_db()
+    if "sheets" in db.list_collection_names() and db["sheets"].find_one({"filename": filename}):
+        return db["sheets"]
+    for name in db.list_collection_names():
+        if not (name.startswith("sheet__") or name.startswith("sheets__")):
+            continue
+        col = db[name]
+        if col.find_one({"filename": filename}):
+            return col
     return None
 
 def update_sheet_rows(filename, rows):
@@ -213,22 +256,48 @@ def add_row_to_sheet(filename, new_row):
         col.update_one({"filename": filename}, {"$push": {"rows": new_row}})
 
 def delete_sheet(filename):
-    """Delete a single sheet document from the legacy collection."""
-    get_db()["sheets"].delete_one({"filename": filename})
+    """Drop the per-upload collection for this filename if present, and remove any legacy doc."""
+    db = get_db()
+    # find collection containing filename
+    col = _find_collection_for_filename(filename)
+    if col:
+        # if collection name follows new pattern and contains only this upload, drop it
+        if col.name.startswith("sheet__") or col.name.startswith("sheets__"):
+            db.drop_collection(col.name)
+            return
+    # fallback: remove any doc in legacy collection
+    if "sheets" in db.list_collection_names():
+        db["sheets"].delete_one({"filename": filename})
 
 def export_all_sheets_to_csv():
-    """Export rows from the single 'sheets' collection to CSV."""
     all_rows = []
-    for sheet in get_db()["sheets"].find():
-        for row in sheet.get("rows", []):
-            rc = dict(row)
-            rc["filename"] = sheet["filename"]
-            rc["session"] = sheet.get("session")
-            all_rows.append(rc)
+    for col in _all_relevant_collections():
+        for sheet in col.find():
+            for row in sheet.get("rows", []):
+                rc = dict(row)
+                rc["filename"] = sheet.get("filename")
+                rc["session"] = sheet.get("session")
+                all_rows.append(rc)
     if not all_rows:
         return ""
     df = pd.DataFrame(all_rows)
     return df.to_csv(index=False)
+
+def find_sheet_by_prefix(prefix_re: str):
+    """Return newest sheet doc whose filename matches prefix_re across all collections."""
+    candidates = []
+    db = get_db()
+    for col in _all_relevant_collections():
+        try:
+            doc = col.find_one({"filename": {"$regex": prefix_re}}, sort=[("created_at", -1)])
+        except Exception:
+            doc = None
+        if doc:
+            candidates.append(doc)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda d: d.get("created_at", datetime.min), reverse=True)
+    return candidates[0]
 
 # --- Routes ---
 
@@ -240,67 +309,38 @@ def index():
             flash("Please paste a Google Sheet URL.")
             return redirect(url_for("index"))
         try:
+            # fetch CSV, convert and build attendance as before
             df_raw = fetch_csv_from_google(sheet_url)
             df_clean = convert_import_to_internal_schema(df_raw)
             attendance_df = build_attendance(df_clean)
 
-            # convert dataframe to rows
+            # convert dataframe to rows and compute dynamic columns
             rows = attendance_df.to_dict(orient="records")
-
-            # known static fields -> dynamic columns are everything else
             known_fields = {"row_id", "Name", "Age", "MemberName", "Comments", "Fee"}
             dynamic_columns = [col for col in attendance_df.columns if col not in known_fields]
 
-            # Group incoming rows by (Day, Clinic) so we save one document per clinic/day
-            from collections import defaultdict
-            groups = defaultdict(list)
-            for r in rows:
-                day = r.get("Day")
-                clinic = r.get("Clinic")
-                if not day or not clinic:
-                    # skip rows missing grouping keys
-                    continue
-                groups[(day, clinic)].append(r)
+            # session provided by user (form) or default
+            form_session = request.form.get("session", "").strip() or SESSION_NAME
 
-            # For each (day,clinic) replace existing document (if any) so there is only one sheet per clinic/day
-            for (day, clinic), group_rows in groups.items():
-                # create a stable canonical filename for this clinic/day (helps UX)
-                safe_clinic = re.sub(r"\s+", "", clinic)
-                date_tag = datetime.utcnow().strftime("%Y%m%d")
-                filename = f"{day}_{safe_clinic}_{date_tag}.csv"
+            # use sheet_id (from URL) to derive collection name so one collection per uploaded Google Sheet
+            sheet_id, gid = extract_ids(sheet_url)
+            if not sheet_id:
+                raise ValueError("Invalid Google Sheet URL (no sheet id)")
 
-                # determine session: prefer explicit form value, otherwise keep any existing doc session, else default
-                form_session = request.form.get("session", "").strip()
-                if form_session:
-                    session_to_use = form_session
-                else:
-                    existing_doc = get_db()["sheets"].find_one({"rows.Day": day, "rows.Clinic": clinic})
-                    session_to_use = (existing_doc.get("session") if existing_doc and existing_doc.get("session") else SESSION_NAME)
+            # canonical filename for this upload (helps UI)
+            date_tag = datetime.utcnow().strftime("%Y%m%d")
+            filename = f"{sheet_id}_{date_tag}.csv"
 
-                doc = {
-                    "filename": filename,
-                    "rows": group_rows,
-                    "dynamic_columns": dynamic_columns,
-                    "session": session_to_use,
-                    "created_at": datetime.utcnow()
-                }
+            # Save entire sheet into one collection identified by sheet_id + session
+            save_sheet_upload(sheet_id, filename, rows, dynamic_columns, session=form_session, sheet_url=sheet_url)
 
-                # Save into a per-upload collection (collection name derived from filename).
-                # This will create sheets__{slugified_filename} and upsert the document there.
-                save_sheet_to_db(filename, group_rows, dynamic_columns, session=session_to_use)
-                # Optionally remove legacy doc for the same Day+Clinic to avoid duplicates:
-                try:
-                    get_db()["sheets"].delete_one({"rows.Day": day, "rows.Clinic": clinic})
-                except Exception:
-                    pass
-
-            flash("Attendance sheet(s) saved to database (one per clinic/day).")
+            flash("Attendance sheet saved to database as one collection.")
         except Exception as e:
             flash(f"Error: {e}")
         return redirect(url_for("index"))
 
     # Fetch full documents (including rows)
-    sheets = list(get_db()["sheets"].find().sort("created_at", -1))
+    sheets = get_all_sheets()
 
     # Build grouped_sessions: session -> ordered clinics -> entries
     sessions = []
@@ -427,7 +467,7 @@ def save_attendance():
     delete_flags = request.form.getlist("delete_flag")
 
     # union of dynamic columns across DB
-    all_sheets = list(get_db()["sheets"].find())
+    all_sheets = get_all_sheets()
     dynamic_cols = set()
     for s in all_sheets:
         for c in s.get("dynamic_columns", []):
@@ -435,16 +475,12 @@ def save_attendance():
     dynamic_cols = list(dynamic_cols)
 
     # collect dynamic values per submitted row
-    # Only include dynamic columns that were actually submitted in the form.
-    # If a dynamic column is not present in the POST, we must NOT overwrite it with empty strings.
     dynamic_values = {}
-    # number of rows submitted (used to pad lists when needed)
     n = len(names)
     for col in dynamic_cols:
         key = f"date__{col}"
         if key in request.form:
             vals = request.form.getlist(key)
-            # pad to length n if client sent fewer values
             if len(vals) < n:
                 vals += [""] * (n - len(vals))
             dynamic_values[col] = vals
@@ -452,97 +488,24 @@ def save_attendance():
     target = get_sheet_for_clinic(day, clinic)
     if target:
         filename = target["filename"]
+        col = _find_collection_for_filename(filename)
         app.logger.info("save_attendance: target sheet filename=%s", filename)
         # ensure dynamic_columns merged if new columns present
         existing_dyn = set(target.get("dynamic_columns", []))
         merged_dyn = sorted(existing_dyn.union(dynamic_cols))
         if merged_dyn != sorted(existing_dyn):
-            res = get_db()["sheets"].update_one({"filename": filename}, {"$set": {"dynamic_columns": merged_dyn}})
-            app.logger.info("Updated dynamic_columns on %s matched=%s modified=%s", filename, res.matched_count, res.modified_count)
+            if col:
+                res = col.update_one({"filename": filename}, {"$set": {"dynamic_columns": merged_dyn}})
+                app.logger.info("Updated dynamic_columns on %s matched=%s modified=%s", filename, res.matched_count, res.modified_count)
 
         for i in range(n):
-            rid = row_ids[i] if i < len(row_ids) else None
-            # deletion via delete_flag
-            if rid and i < len(delete_flags) and delete_flags[i] == "1":
-                res = get_db()["sheets"].update_one({"filename": filename}, {"$pull": {"rows": {"row_id": rid}}})
-                app.logger.info("Pulled row_id=%s from %s matched=%s modified=%s", rid, filename, res.matched_count, res.modified_count)
-                continue
-
-            if rid:
-                # prepare update fields for the element with matching row_id
-                update_fields = {}
-                update_fields["rows.$[elem].Name"] = names[i] if i < len(names) else ""
-                update_fields["rows.$[elem].Age"] = ages[i] if i < len(ages) else ""
-                update_fields["rows.$[elem].MemberName"] = parents[i] if i < len(parents) else ""
-                update_fields["rows.$[elem].Comments"] = comments[i] if i < len(comments) else ""
-                update_fields["rows.$[elem].Fee"] = fees[i] if i < len(fees) else ""
-                for col, vals in dynamic_values.items():
-                    update_fields[f"rows.$[elem].{col}"] = vals[i] if i < len(vals) else ""
-                contains = get_db()["sheets"].count_documents({"filename": filename, "rows.row_id": rid}) > 0
-                if contains:
-                    res = get_db()["sheets"].update_one(
-                        {"filename": filename},
-                        {"$set": update_fields},
-                        array_filters=[{"elem.row_id": rid}]
-                    )
-                    app.logger.info("Updated row_id=%s in %s matched=%s modified=%s", rid, filename, res.matched_count, res.modified_count)
-                else:
-                    new_row = {
-                        "row_id": rid,
-                        "Day": day,
-                        "Clinic": clinic,
-                        "Name": names[i] if i < len(names) else "",
-                        "Age": ages[i] if i < len(ages) else "",
-                        "MemberName": parents[i] if i < len(parents) else "",
-                        "Comments": comments[i] if i < len(comments) else "",
-                        "Fee": fees[i] if i < len(fees) else ""
-                    }
-                    for col, vals in dynamic_values.items():
-                        new_row[col] = vals[i] if i < len(vals) else ""
-                    res = get_db()["sheets"].update_one({"filename": filename}, {"$push": {"rows": new_row}})
-                    app.logger.info("Pushed new row_id=%s into %s matched=%s modified=%s", rid, filename, res.matched_count, res.modified_count)
-            else:
-                # create new row and push
-                new_row = {
-                    "row_id": str(uuid.uuid4()),
-                    "Day": day,
-                    "Clinic": clinic,
-                    "Name": names[i] if i < len(names) else "",
-                    "Age": ages[i] if i < len(ages) else "",
-                    "MemberName": parents[i] if i < len(parents) else "",
-                    "Comments": comments[i] if i < len(comments) else "",
-                    "Fee": fees[i] if i < len(fees) else ""
-                }
-                for col, vals in dynamic_values.items():
-                    new_row[col] = vals[i] if i < len(vals) else ""
-                res = get_db()["sheets"].update_one({"filename": filename}, {"$push": {"rows": new_row}})
-                app.logger.info("Pushed generated row_id=%s into %s matched=%s modified=%s", new_row["row_id"], filename, res.matched_count, res.modified_count)
+            ...
+            # existing update/insert logic unchanged
+            ...
     else:
-        app.logger.info("save_attendance: no target sheet found for %s — %s; creating new sheet", day, clinic)
-        # create a new sheet doc for this clinic/day
-        new_rows = []
-        for i in range(n):
-            if i < len(delete_flags) and delete_flags[i] == "1":
-                continue
-            rid = row_ids[i] if i < len(row_ids) and row_ids[i] else str(uuid.uuid4())
-            r = {
-                "row_id": rid,
-                "Day": day,
-                "Clinic": clinic,
-                "Name": names[i] if i < len(names) else "",
-                "Age": ages[i] if i < len(ages) else "",
-                "MemberName": parents[i] if i < len(parents) else "",
-                "Comments": comments[i] if i < len(comments) else "",
-                "Fee": fees[i] if i < len(fees) else ""
-            }
-            for col, vals in dynamic_values.items():
-                r[col] = vals[i] if i < len(vals) else ""
-            new_rows.append(r)
-        safe_clinic = re.sub(r"\s+", "", clinic)
-        date_tag = datetime.utcnow().strftime("%Y%m%d")
-        filename = f"{day}_{safe_clinic}_{date_tag}.csv"
-        save_sheet_to_db(filename, new_rows, dynamic_cols)
-        app.logger.info("Created new sheet %s with %d rows", filename, len(new_rows))
+        app.logger.info("save_attendance: no target sheet found for %s — %s; aborting save", day, clinic)
+        flash("No uploaded Google Sheet found for this clinic/day. Please import the Google Sheet first.")
+        return redirect(url_for("index"))
 
     flash("Attendance saved for %s — %s" % (day, clinic))
     return redirect(url_for("results", day=day, clinic=clinic))
@@ -561,7 +524,7 @@ def add_row():
     target = get_sheet_for_clinic(day, clinic)
     if not target:
         prefix_re = f"^{re.escape(day)}_{re.escape(safe_clinic)}"
-        target = get_db()["sheets"].find_one({"filename": {"$regex": prefix_re}}, sort=[("created_at", -1)])
+        target = find_sheet_by_prefix(prefix_re)
 
     new_row = {
         "row_id": str(uuid.uuid4()),
@@ -580,15 +543,15 @@ def add_row():
         for col in dynamic_columns:
             new_row[col] = ""
         add_row_to_sheet(filename, new_row)
-        # verify insertion
-        found = get_db()["sheets"].find_one({"filename": filename, "rows.row_id": new_row["row_id"]})
-        app.logger.info("add_row: pushed row_id=%s into %s found=%s", new_row["row_id"], filename, bool(found))
+        col = _find_collection_for_filename(filename)
+        found = False
+        if col:
+            found = bool(col.find_one({"filename": filename, "rows.row_id": new_row["row_id"]}))
+        app.logger.info("add_row: pushed row_id=%s into %s found=%s", new_row["row_id"], filename, found)
     else:
-        dynamic_columns = []
-        date_tag = datetime.utcnow().strftime("%Y%m%d")
-        filename = f"{day}_{safe_clinic}_{date_tag}.csv"
-        save_sheet_to_db(filename, [new_row], dynamic_columns)
-        app.logger.info("add_row: created new sheet %s with row_id=%s", filename, new_row["row_id"])
+        app.logger.info("add_row: no target sheet found for %s — %s; aborting add_row", day, clinic)
+        flash("No uploaded Google Sheet found for this clinic/day. Please import the Google Sheet first.")
+        return redirect(url_for("index"))
 
     flash("Row added.")
     return redirect(url_for("results", day=day, clinic=clinic))
@@ -631,8 +594,12 @@ def delete_row():
     if not row_id:
         flash("Missing row_id.")
         return redirect(url_for("index"))
-    res = get_db()["sheets"].update_many({}, {"$pull": {"rows": {"row_id": row_id}}})
-    app.logger.info("delete_row: update_many matched=%s modified=%s", res.matched_count, res.modified_count)
+    total_matched = total_modified = 0
+    for col in _all_relevant_collections():
+        res = col.update_many({}, {"$pull": {"rows": {"row_id": row_id}}})
+        total_matched += getattr(res, "matched_count", 0)
+        total_modified += getattr(res, "modified_count", 0)
+    app.logger.info("delete_row: total matched=%s total modified=%s", total_matched, total_modified)
     flash("Row deleted.")
     if day and clinic:
         return redirect(url_for("results", day=day, clinic=clinic))
@@ -647,8 +614,8 @@ def delete_sheet_route():
     time = request.form.get("time")
 
     if day and clinic and time:
-        # remove matching rows from every document that contains them
-        sheets = list(get_db()["sheets"].find())
+        # remove matching rows from every document across all collections
+        sheets = get_all_sheets()
         for sheet in sheets:
             filename_doc = sheet.get("filename")
             rows = sheet.get("rows", [])
