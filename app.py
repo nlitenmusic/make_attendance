@@ -126,6 +126,29 @@ def list_saved_sheets_sorted():
 
 # --- MongoDB helpers ---
 
+def _slug(s: str) -> str:
+    s = (s or "default").strip()
+    s = s.lower()
+    s = re.sub(r"[^0-9a-z]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s or "default"
+
+def collection_for_upload(filename: str):
+    """Create/use a collection per upload, based on filename (no .csv)."""
+    base = filename.replace(".csv", "")
+    cname = f"sheets__{_slug(base)}"
+    return get_db()[cname]
+
+def _legacy_collection():
+    return get_db()["sheets"]
+
+def _all_relevant_collections():
+    """Yield legacy then all sheets__* collections."""
+    yield _legacy_collection()
+    for name in get_db().list_collection_names():
+        if name.startswith("sheets__"):
+            yield get_db()[name]
+
 def save_sheet_to_db(filename, rows, dynamic_columns, session=SESSION_NAME):
     doc = {
         "filename": filename,
@@ -134,39 +157,131 @@ def save_sheet_to_db(filename, rows, dynamic_columns, session=SESSION_NAME):
         "session": session,
         "created_at": datetime.utcnow()
     }
-    get_db()["sheets"].replace_one({"filename": filename}, doc, upsert=True)
+    # write to a new collection per upload (collection name derived from filename)
+    col = collection_for_upload(filename)
+    col.replace_one({"filename": filename}, doc, upsert=True)
 
 def get_all_sheets():
-    return list(get_db()["sheets"].find({}, {"filename": 1, "created_at": 1}).sort("created_at", -1))
+    out = []
+    # include legacy collection if present
+    try:
+        out.extend(list(_legacy_collection().find({}, {"filename": 1, "created_at": 1, "session": 1}).sort("created_at", -1)))
+    except Exception:
+        pass
+    # include per-upload collections
+    for name in get_db().list_collection_names():
+        if not name.startswith("sheets__"):
+            continue
+        col = get_db()[name]
+        out.extend(list(col.find({}, {"filename": 1, "created_at": 1, "session": 1}).sort("created_at", -1)))
+    # dedupe by filename keeping the latest created_at
+    seen = {}
+    for d in out:
+        fname = d.get("filename")
+        if not fname:
+            continue
+        existing = seen.get(fname)
+        if not existing or d.get("created_at", datetime.min) > existing.get("created_at", datetime.min):
+            seen[fname] = d
+    docs = list(seen.values())
+    return sorted(docs, key=lambda d: d.get("created_at", datetime.min), reverse=True)
 
 def get_sheet_by_filename(filename):
-    return get_db()["sheets"].find_one({"filename": filename})
+    # check legacy first
+    doc = _legacy_collection().find_one({"filename": filename})
+    if doc:
+        return doc
+    # then check per-upload collections
+    for name in get_db().list_collection_names():
+        if not name.startswith("sheets__"):
+            continue
+        doc = get_db()[name].find_one({"filename": filename})
+        if doc:
+            return doc
+    return None
 
 def get_sheet_for_clinic(day, clinic):
-    """Return the first sheet document that contains rows for the given day+clinic, or None."""
-    # use $elemMatch for a robust match against array elements
-    return get_db()["sheets"].find_one({"rows": {"$elemMatch": {"Day": day, "Clinic": clinic}}})
+    """Return the newest document across legacy + per-upload collections that contains the Day+Clinic."""
+    candidates = []
+    # legacy
+    try:
+        doc = _legacy_collection().find_one({"rows": {"$elemMatch": {"Day": day, "Clinic": clinic}}})
+        if doc:
+            candidates.append(doc)
+    except Exception:
+        pass
+    # per-upload
+    for name in get_db().list_collection_names():
+        if not name.startswith("sheets__"):
+            continue
+        doc = get_db()[name].find_one({"rows": {"$elemMatch": {"Day": day, "Clinic": clinic}}})
+        if doc:
+            candidates.append(doc)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda d: d.get("created_at", datetime.min), reverse=True)
+    return candidates[0]
+
+def _find_collection_for_filename(filename):
+    # returns collection object or None
+    if _legacy_collection().find_one({"filename": filename}):
+        return _legacy_collection()
+    for name in get_db().list_collection_names():
+        if not name.startswith("sheets__"):
+            continue
+        col = get_db()[name]
+        if col.find_one({"filename": filename}):
+            return col
+    return None
 
 def update_sheet_rows(filename, rows):
-    get_db()["sheets"].update_one({"filename": filename}, {"$set": {"rows": rows}})
+    col = _find_collection_for_filename(filename)
+    if col:
+        col.update_one({"filename": filename}, {"$set": {"rows": rows}})
 
 def update_sheet_dynamic_columns(filename, dynamic_columns, rows):
-    get_db()["sheets"].update_one({"filename": filename}, {"$set": {"dynamic_columns": dynamic_columns, "rows": rows}})
+    col = _find_collection_for_filename(filename)
+    if col:
+        col.update_one({"filename": filename}, {"$set": {"dynamic_columns": dynamic_columns, "rows": rows}})
 
 def add_row_to_sheet(filename, new_row):
-    get_db()["sheets"].update_one({"filename": filename}, {"$push": {"rows": new_row}})
+    col = _find_collection_for_filename(filename)
+    if col:
+        col.update_one({"filename": filename}, {"$push": {"rows": new_row}})
 
 def delete_sheet(filename):
-    get_db()["sheets"].delete_one({"filename": filename})
+    # delete from legacy and any per-upload collection that contains it
+    try:
+        _legacy_collection().delete_one({"filename": filename})
+    except Exception:
+        pass
+    for name in get_db().list_collection_names():
+        if not name.startswith("sheets__"):
+            continue
+        get_db()[name].delete_one({"filename": filename})
 
 def export_all_sheets_to_csv():
-    sheets = list(get_db()["sheets"].find())
     all_rows = []
-    for sheet in sheets:
-        for row in sheet.get("rows", []):
-            row_copy = dict(row)
-            row_copy["filename"] = sheet["filename"]
-            all_rows.append(row_copy)
+    # legacy
+    try:
+        for sheet in _legacy_collection().find():
+            for row in sheet.get("rows", []):
+                rc = dict(row)
+                rc["filename"] = sheet["filename"]
+                rc["session"] = sheet.get("session")
+                all_rows.append(rc)
+    except Exception:
+        pass
+    # per-upload
+    for name in get_db().list_collection_names():
+        if not name.startswith("sheets__"):
+            continue
+        for sheet in get_db()[name].find():
+            for row in sheet.get("rows", []):
+                rc = dict(row)
+                rc["filename"] = sheet["filename"]
+                rc["session"] = sheet.get("session")
+                all_rows.append(rc)
     if not all_rows:
         return ""
     df = pd.DataFrame(all_rows)
