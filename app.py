@@ -150,6 +150,8 @@ def _all_relevant_collections():
             yield get_db()[name]
 
 def save_sheet_to_db(filename, rows, dynamic_columns, session=SESSION_NAME):
+    """Save one document per uploaded Google Sheet into the single legacy 'sheets' collection."""
+    col = get_db()["sheets"]
     doc = {
         "filename": filename,
         "rows": rows,
@@ -157,81 +159,42 @@ def save_sheet_to_db(filename, rows, dynamic_columns, session=SESSION_NAME):
         "session": session,
         "created_at": datetime.utcnow()
     }
-    # write to a new collection per upload (collection name derived from filename)
-    col = collection_for_upload(filename)
     col.replace_one({"filename": filename}, doc, upsert=True)
 
 def get_all_sheets():
-    out = []
-    # include legacy collection if present
-    try:
-        out.extend(list(_legacy_collection().find({}, {"filename": 1, "created_at": 1, "session": 1}).sort("created_at", -1)))
-    except Exception:
-        pass
-    # include per-upload collections
-    for name in get_db().list_collection_names():
-        if not name.startswith("sheets__"):
-            continue
-        col = get_db()[name]
-        out.extend(list(col.find({}, {"filename": 1, "created_at": 1, "session": 1}).sort("created_at", -1)))
-    # dedupe by filename keeping the latest created_at
-    seen = {}
-    for d in out:
-        fname = d.get("filename")
-        if not fname:
-            continue
-        existing = seen.get(fname)
-        if not existing or d.get("created_at", datetime.min) > existing.get("created_at", datetime.min):
-            seen[fname] = d
-    docs = list(seen.values())
-    return sorted(docs, key=lambda d: d.get("created_at", datetime.min), reverse=True)
+    """Return all docs from the single 'sheets' collection, sorted by session then created_at desc."""
+    col = get_db()["sheets"]
+    docs = list(col.find({}))
+    # sort by session (None last) then created_at desc
+    def key(d):
+        sess = d.get("session") or ""
+        return (sess.lower(), -(d.get("created_at") or datetime.min).timestamp())
+    return sorted(docs, key=key)
 
 def get_sheet_by_filename(filename):
-    # check legacy first
-    doc = _legacy_collection().find_one({"filename": filename})
-    if doc:
-        return doc
-    # then check per-upload collections
-    for name in get_db().list_collection_names():
-        if not name.startswith("sheets__"):
-            continue
-        doc = get_db()[name].find_one({"filename": filename})
+    """Find a sheet doc by filename in the single 'sheets' collection."""
+    return get_db()["sheets"].find_one({"filename": filename})
+
+def get_sheet_for_clinic(day, clinic, session=None):
+    """Prefer a document in 'sheets' matching session (if provided), otherwise newest doc containing Day+Clinic."""
+    col = get_db()["sheets"]
+    if session:
+        doc = col.find_one({"session": session, "rows": {"$elemMatch": {"Day": day, "Clinic": clinic}}}, sort=[("created_at", -1)])
         if doc:
             return doc
-    return None
-
-def get_sheet_for_clinic(day, clinic):
-    """Return the newest document across legacy + per-upload collections that contains the Day+Clinic."""
-    candidates = []
-    # legacy
-    try:
-        doc = _legacy_collection().find_one({"rows": {"$elemMatch": {"Day": day, "Clinic": clinic}}})
-        if doc:
-            candidates.append(doc)
-    except Exception:
-        pass
-    # per-upload
-    for name in get_db().list_collection_names():
-        if not name.startswith("sheets__"):
-            continue
-        doc = get_db()[name].find_one({"rows": {"$elemMatch": {"Day": day, "Clinic": clinic}}})
-        if doc:
-            candidates.append(doc)
+    # search all docs and prefer newest by created_at
+    cursor = col.find({"rows": {"$elemMatch": {"Day": day, "Clinic": clinic}}})
+    candidates = list(cursor)
     if not candidates:
         return None
     candidates.sort(key=lambda d: d.get("created_at", datetime.min), reverse=True)
     return candidates[0]
 
 def _find_collection_for_filename(filename):
-    # returns collection object or None
-    if _legacy_collection().find_one({"filename": filename}):
-        return _legacy_collection()
-    for name in get_db().list_collection_names():
-        if not name.startswith("sheets__"):
-            continue
-        col = get_db()[name]
-        if col.find_one({"filename": filename}):
-            return col
+    """Legacy helper now always returns the single sheets collection if the filename exists."""
+    col = get_db()["sheets"]
+    if col.find_one({"filename": filename}):
+        return col
     return None
 
 def update_sheet_rows(filename, rows):
@@ -250,38 +213,18 @@ def add_row_to_sheet(filename, new_row):
         col.update_one({"filename": filename}, {"$push": {"rows": new_row}})
 
 def delete_sheet(filename):
-    # delete from legacy and any per-upload collection that contains it
-    try:
-        _legacy_collection().delete_one({"filename": filename})
-    except Exception:
-        pass
-    for name in get_db().list_collection_names():
-        if not name.startswith("sheets__"):
-            continue
-        get_db()[name].delete_one({"filename": filename})
+    """Delete a single sheet document from the legacy collection."""
+    get_db()["sheets"].delete_one({"filename": filename})
 
 def export_all_sheets_to_csv():
+    """Export rows from the single 'sheets' collection to CSV."""
     all_rows = []
-    # legacy
-    try:
-        for sheet in _legacy_collection().find():
-            for row in sheet.get("rows", []):
-                rc = dict(row)
-                rc["filename"] = sheet["filename"]
-                rc["session"] = sheet.get("session")
-                all_rows.append(rc)
-    except Exception:
-        pass
-    # per-upload
-    for name in get_db().list_collection_names():
-        if not name.startswith("sheets__"):
-            continue
-        for sheet in get_db()[name].find():
-            for row in sheet.get("rows", []):
-                rc = dict(row)
-                rc["filename"] = sheet["filename"]
-                rc["session"] = sheet.get("session")
-                all_rows.append(rc)
+    for sheet in get_db()["sheets"].find():
+        for row in sheet.get("rows", []):
+            rc = dict(row)
+            rc["filename"] = sheet["filename"]
+            rc["session"] = sheet.get("session")
+            all_rows.append(rc)
     if not all_rows:
         return ""
     df = pd.DataFrame(all_rows)
