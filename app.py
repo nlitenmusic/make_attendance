@@ -342,13 +342,14 @@ def index():
                     "created_at": datetime.utcnow()
                 }
 
-                # Replace any existing document that contains rows for the same Day+Clinic.
-                # This ensures exactly one saved sheet per clinic per day.
-                get_db()["sheets"].replace_one(
-                    {"rows.Day": day, "rows.Clinic": clinic},
-                    doc,
-                    upsert=True
-                )
+                # Save into a per-upload collection (collection name derived from filename).
+                # This will create sheets__{slugified_filename} and upsert the document there.
+                save_sheet_to_db(filename, group_rows, dynamic_columns, session=session_to_use)
+                # Optionally remove legacy doc for the same Day+Clinic to avoid duplicates:
+                try:
+                    get_db()["sheets"].delete_one({"rows.Day": day, "rows.Clinic": clinic})
+                except Exception:
+                    pass
 
             flash("Attendance sheet(s) saved to database (one per clinic/day).")
         except Exception as e:
