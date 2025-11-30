@@ -604,6 +604,33 @@ def delete_sheet_route():
         flash("Missing deletion parameters.")
     return redirect(url_for("index"))
 
+@app.route("/delete_session", methods=["POST"])
+def delete_session():
+    # No admin token required (UI button posts here)
+    session = (request.form.get("session") or "").strip()
+    if not session:
+        flash("Missing session.")
+        return redirect(url_for("index"))
+    res = get_db()["sheets"].delete_many({"session": session})
+    flash(f"Deleted {res.deleted_count} sheet(s) for session '{session}'.")
+    return redirect(url_for("index"))
+
+@app.route("/delete_clinic_group", methods=["POST"])
+def delete_clinic_group():
+    # No admin token required (UI button posts here)
+    day = (request.form.get("day") or "").strip()
+    clinic = (request.form.get("clinic") or "").strip()
+    session = (request.form.get("session") or "").strip()
+    if not day or not clinic:
+        flash("Missing day or clinic.")
+        return redirect(url_for("index"))
+    filt = {"rows.Day": day, "rows.Clinic": clinic}
+    if session:
+        filt["session"] = session
+    res = get_db()["sheets"].delete_many(filt)
+    flash(f"Deleted {res.deleted_count} sheet(s) for {day} — {clinic}" + (f" in session '{session}'." if session else "."))
+    return redirect(url_for("index"))
+
 @app.route("/export_all", methods=["GET"])
 def export_all():
     csv_data = export_all_sheets_to_csv()
